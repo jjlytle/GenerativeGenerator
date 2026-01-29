@@ -251,6 +251,12 @@ uint8_t previous_note = 60;      // Previous note for direction memory
 int last_interval = 0;           // Last interval taken
 bool last_direction_up = true;   // Last direction was ascending
 
+// Note history for memory/repetition bias
+#define NOTE_HISTORY_SIZE 8
+uint8_t note_history[NOTE_HISTORY_SIZE];
+int note_history_count = 0;
+int note_history_index = 0;
+
 // Simple random number generator (XORshift)
 uint32_t rng_state = 12345;
 uint32_t xorshift32()
@@ -265,6 +271,69 @@ uint32_t xorshift32()
 float random_float()
 {
     return (float)xorshift32() / 4294967296.0f;
+}
+
+// Add note to history buffer (circular buffer)
+void add_note_to_history(uint8_t note)
+{
+    note_history[note_history_index] = note;
+    note_history_index = (note_history_index + 1) % NOTE_HISTORY_SIZE;
+    if(note_history_count < NOTE_HISTORY_SIZE)
+        note_history_count++;
+}
+
+// Check if note appears in recent history
+// Returns count of how many times it appears (0-8)
+int count_in_history(uint8_t note)
+{
+    int count = 0;
+    for(int i = 0; i < note_history_count; i++)
+    {
+        if(note_history[i] == note)
+            count++;
+    }
+    return count;
+}
+
+// Apply memory bias to note acceptance
+// Returns true if note should be accepted, false if it should be rejected
+bool apply_memory_bias(uint8_t candidate_note)
+{
+    // Get MEMORY parameter (0.0 = avoid repeats, 0.5 = neutral, 1.0 = favor repeats)
+    float memory_param = parameters_smoothed[PARAM_MEMORY];
+
+    // Check if note is in recent history
+    int history_count = count_in_history(candidate_note);
+
+    // If note not in history, always accept
+    if(history_count == 0)
+        return true;
+
+    // Calculate acceptance probability based on memory setting
+    float acceptance_probability = 1.0f;
+
+    if(memory_param < 0.4f)
+    {
+        // Low memory: Avoid repeats (seek novelty)
+        // The more the note appears in history, the lower the acceptance
+        float avoidance = (0.4f - memory_param) / 0.4f;  // 0.0 to 1.0
+        acceptance_probability = 1.0f - (avoidance * history_count / NOTE_HISTORY_SIZE);
+    }
+    else if(memory_param > 0.6f)
+    {
+        // High memory: Favor repeats
+        // The more the note appears in history, the higher the acceptance
+        float favoritism = (memory_param - 0.6f) / 0.4f;  // 0.0 to 1.0
+        acceptance_probability = 1.0f + (favoritism * history_count / NOTE_HISTORY_SIZE);
+    }
+    // else: neutral range (0.4-0.6), acceptance = 1.0 (ignore history)
+
+    // Clamp probability
+    if(acceptance_probability < 0.0f) acceptance_probability = 0.0f;
+    if(acceptance_probability > 1.0f) acceptance_probability = 1.0f;
+
+    // Accept or reject based on probability
+    return random_float() < acceptance_probability;
 }
 
 // Weighted random selection from interval histogram
@@ -395,48 +464,71 @@ uint8_t apply_octave_displacement(uint8_t note)
 // Generate next note based on learned tendencies and parameters
 uint8_t generate_next_note()
 {
+    uint8_t candidate_note = 0;
+    int attempts = 0;
+    const int MAX_ATTEMPTS = 4;  // Try up to 4 times to find acceptable note
+
     // Get MOTION parameter (0.0 = stepwise, 1.0 = leaps)
     float motion_bias = parameters_smoothed[PARAM_MOTION];
 
-    // Select interval size from learned distribution
-    int interval_size = select_interval_from_distribution();
-
-    // Bias toward smaller or larger intervals based on MOTION parameter
-    if(motion_bias < 0.5f)
+    // Try generating notes until memory bias accepts one (or max attempts reached)
+    while(attempts < MAX_ATTEMPTS)
     {
-        // Bias toward smaller intervals
-        float scale = motion_bias * 2.0f;  // 0.0 to 1.0
-        interval_size = (int)(interval_size * scale + 0.5f);
-        if(interval_size == 0 && random_float() > 0.5f)
-            interval_size = 1;  // Prefer steps over repeats when going small
+        // Select interval size from learned distribution
+        int interval_size = select_interval_from_distribution();
+
+        // Bias toward smaller or larger intervals based on MOTION parameter
+        if(motion_bias < 0.5f)
+        {
+            // Bias toward smaller intervals
+            float scale = motion_bias * 2.0f;  // 0.0 to 1.0
+            interval_size = (int)(interval_size * scale + 0.5f);
+            if(interval_size == 0 && random_float() > 0.5f)
+                interval_size = 1;  // Prefer steps over repeats when going small
+        }
+        else
+        {
+            // Bias toward larger intervals
+            float scale = (motion_bias - 0.5f) * 2.0f;  // 0.0 to 1.0
+            int boost = (int)(scale * 4.0f);  // Add up to 4 semitones
+            interval_size = fmin(interval_size + boost, 12);
+        }
+
+        // Select direction (includes register gravity influence)
+        bool go_up = select_direction();
+
+        // Apply interval with direction
+        int signed_interval = go_up ? interval_size : -interval_size;
+        int new_note = current_note + signed_interval;
+
+        // Clamp to MIDI range
+        new_note = fmax(0, fmin(127, new_note));
+
+        // Apply octave displacement for variety
+        new_note = apply_octave_displacement(new_note);
+
+        // Store candidate
+        candidate_note = (uint8_t)new_note;
+
+        // Apply memory bias - accept or reject based on recent history
+        if(apply_memory_bias(candidate_note))
+        {
+            // Note accepted!
+            break;
+        }
+
+        attempts++;
     }
-    else
-    {
-        // Bias toward larger intervals
-        float scale = (motion_bias - 0.5f) * 2.0f;  // 0.0 to 1.0
-        int boost = (int)(scale * 4.0f);  // Add up to 4 semitones
-        interval_size = fmin(interval_size + boost, 12);
-    }
 
-    // Select direction (includes register gravity influence)
-    bool go_up = select_direction();
-
-    // Apply interval with direction
-    int signed_interval = go_up ? interval_size : -interval_size;
-    int new_note = current_note + signed_interval;
-
-    // Clamp to MIDI range
-    new_note = fmax(0, fmin(127, new_note));
-
-    // Apply octave displacement for variety
-    new_note = apply_octave_displacement(new_note);
+    // Add accepted note to history
+    add_note_to_history(candidate_note);
 
     // Store for next iteration
     previous_note = current_note;
-    last_interval = signed_interval;
-    last_direction_up = go_up;
+    last_interval = candidate_note - current_note;
+    last_direction_up = (candidate_note > current_note);
 
-    return (uint8_t)new_note;
+    return candidate_note;
 }
 
 // Send MIDI note output
@@ -510,6 +602,12 @@ void update_learning_state()
             previous_note = current_note;
             last_interval = 0;
             last_direction_up = (tendencies.ascending_count >= tendencies.descending_count);
+
+            // Clear note history for memory bias system
+            note_history_count = 0;
+            note_history_index = 0;
+            for(int i = 0; i < NOTE_HISTORY_SIZE; i++)
+                note_history[i] = 0;
 
             // Seed RNG with current time for variety
             rng_state = System::GetNow();
