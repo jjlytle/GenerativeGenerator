@@ -59,6 +59,11 @@ const char* page_names[NUM_PAGES][PARAMS_PER_PAGE] = {
 float parameters[TOTAL_PARAMS];
 float parameters_smoothed[TOTAL_PARAMS];  // Smoothed versions for display/use
 
+// Soft takeover (parameter pickup)
+bool  param_pickup_active[TOTAL_PARAMS];  // True when pot has "caught" the stored value
+float pot_last_value[TOTAL_PARAMS];       // Last pot value for each parameter
+const float PICKUP_THRESHOLD = 0.05f;     // How close pot must be to pickup (5%)
+
 // Current pot readings (4 pots)
 float pot_values[4];
 
@@ -148,6 +153,7 @@ void UpdateDisplay()
         // Get smoothed parameter value for this page/slot
         int param_index = (current_page * PARAMS_PER_PAGE) + i;
         float param_value = parameters_smoothed[param_index];
+        bool is_active = param_pickup_active[param_index];
 
         // Bar graph (0-70 pixels) - showing smoothed parameter value
         int bar_width = (int)(param_value * 70.0f);
@@ -156,8 +162,26 @@ void UpdateDisplay()
             hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
         }
 
-        // Border
-        hw.display.DrawRect(56, y, 126, y + 7, true, false);
+        // Border (solid if active, dashed if waiting for pickup)
+        if(is_active)
+        {
+            hw.display.DrawRect(56, y, 126, y + 7, true, false);
+        }
+        else
+        {
+            // Dashed border to show waiting for pickup
+            for(int x = 56; x < 126; x += 4)
+            {
+                hw.display.DrawPixel(x, y, true);
+                hw.display.DrawPixel(x, y + 7, true);
+            }
+            hw.display.DrawLine(56, y, 56, y + 7, true);
+            hw.display.DrawLine(126, y, 126, y + 7, true);
+
+            // Show target marker (small vertical line at target position)
+            int target_x = 56 + bar_width;
+            hw.display.DrawLine(target_x, y - 1, target_x, y + 8, true);
+        }
     }
 
     // Clock/Gate indicator (bottom right)
@@ -210,27 +234,7 @@ void UpdateControls()
     hw.ProcessAnalogControls();
     hw.ProcessDigitalControls();
 
-    // Read 4 potentiometers and update parameters
-    for(int i = 0; i < PARAMS_PER_PAGE; i++)
-    {
-        pot_values[i] = hw.controls[i].Process();
-
-        // Map pot to correct parameter based on current page
-        int param_index = (current_page * PARAMS_PER_PAGE) + i;
-
-        // Store raw pot value
-        parameters[param_index] = pot_values[i];
-    }
-
-    // Apply smoothing to ALL parameters (not just current page)
-    for(int i = 0; i < TOTAL_PARAMS; i++)
-    {
-        // One-pole lowpass filter (exponential smoothing)
-        // smoothed = smoothed + coeff * (target - smoothed)
-        parameters_smoothed[i] += SMOOTHING_COEFF * (parameters[i] - parameters_smoothed[i]);
-    }
-
-    // Read encoder for page navigation
+    // Read encoder for page navigation (do this first to detect page changes)
     int encoder_change = hw.encoder.Increment();
     if(encoder_change != 0)
     {
@@ -244,6 +248,67 @@ void UpdateControls()
 
         // Show page change overlay for 2 seconds
         page_change_timer = 60;  // 60 frames at 30fps = 2 seconds
+
+        // On page change, deactivate pickup for new page's parameters
+        // (they need to catch up to stored values)
+        for(int i = 0; i < PARAMS_PER_PAGE; i++)
+        {
+            int param_index = (current_page * PARAMS_PER_PAGE) + i;
+            param_pickup_active[param_index] = false;
+        }
+    }
+
+    // Read 4 potentiometers and update parameters with soft takeover
+    for(int i = 0; i < PARAMS_PER_PAGE; i++)
+    {
+        pot_values[i] = hw.controls[i].Process();
+
+        // Map pot to correct parameter based on current page
+        int param_index = (current_page * PARAMS_PER_PAGE) + i;
+
+        // Check if pickup is active for this parameter
+        if(!param_pickup_active[param_index])
+        {
+            // Not active yet - check if pot has "caught up" to stored value
+            float stored_value = parameters[param_index];
+            float pot_value = pot_values[i];
+
+            // Check if pot is within threshold of stored value
+            if(fabs(pot_value - stored_value) < PICKUP_THRESHOLD)
+            {
+                // Close enough - activate pickup
+                param_pickup_active[param_index] = true;
+            }
+            // Also check if pot has crossed the stored value
+            // (moving from one side to the other)
+            else
+            {
+                float last_pot = pot_last_value[param_index];
+                bool crossed = (last_pot <= stored_value && pot_value >= stored_value) ||
+                               (last_pot >= stored_value && pot_value <= stored_value);
+                if(crossed)
+                {
+                    param_pickup_active[param_index] = true;
+                }
+            }
+        }
+
+        // Only update parameter if pickup is active
+        if(param_pickup_active[param_index])
+        {
+            parameters[param_index] = pot_values[i];
+        }
+
+        // Store pot value for next comparison
+        pot_last_value[param_index] = pot_values[i];
+    }
+
+    // Apply smoothing to ALL parameters (not just current page)
+    for(int i = 0; i < TOTAL_PARAMS; i++)
+    {
+        // One-pole lowpass filter (exponential smoothing)
+        // smoothed = smoothed + coeff * (target - smoothed)
+        parameters_smoothed[i] += SMOOTHING_COEFF * (parameters[i] - parameters_smoothed[i]);
     }
 
     // Encoder click resets to page 0
@@ -309,6 +374,8 @@ int main(void)
     {
         parameters[i] = 0.5f;
         parameters_smoothed[i] = 0.5f;  // Start smoothed values at same position
+        param_pickup_active[i] = true;  // All active at startup
+        pot_last_value[i] = 0.5f;       // Initialize to middle position
     }
 
     // Initialize pot values
