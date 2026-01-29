@@ -57,9 +57,15 @@ const char* page_names[NUM_PAGES][PARAMS_PER_PAGE] = {
 
 // Parameter storage (all 12 parameters, 0.0 to 1.0)
 float parameters[TOTAL_PARAMS];
+float parameters_smoothed[TOTAL_PARAMS];  // Smoothed versions for display/use
 
 // Current pot readings (4 pots)
 float pot_values[4];
+
+// Smoothing coefficient (0.0 = no change, 1.0 = instant change)
+// Lower values = more smoothing, better for slow gestures
+// Higher values = less smoothing, better for fast tweaking
+const float SMOOTHING_COEFF = 0.15f;
 
 // Other state
 bool  gate_in_state = false;
@@ -121,11 +127,11 @@ void UpdateDisplay()
         hw.display.SetCursor(0, y);
         hw.display.WriteString((char*)page_names[current_page][i], Font_6x8, true);
 
-        // Get stored parameter value for this page/slot
+        // Get smoothed parameter value for this page/slot
         int param_index = (current_page * PARAMS_PER_PAGE) + i;
-        float param_value = parameters[param_index];
+        float param_value = parameters_smoothed[param_index];
 
-        // Bar graph (0-70 pixels) - showing stored parameter value
+        // Bar graph (0-70 pixels) - showing smoothed parameter value
         int bar_width = (int)(param_value * 70.0f);
         for(int x = 0; x < bar_width; x++)
         {
@@ -173,14 +179,24 @@ void UpdateControls()
     hw.ProcessAnalogControls();
     hw.ProcessDigitalControls();
 
-    // Read 4 potentiometers
+    // Read 4 potentiometers and update parameters
     for(int i = 0; i < PARAMS_PER_PAGE; i++)
     {
         pot_values[i] = hw.controls[i].Process();
 
         // Map pot to correct parameter based on current page
         int param_index = (current_page * PARAMS_PER_PAGE) + i;
+
+        // Store raw pot value
         parameters[param_index] = pot_values[i];
+    }
+
+    // Apply smoothing to ALL parameters (not just current page)
+    for(int i = 0; i < TOTAL_PARAMS; i++)
+    {
+        // One-pole lowpass filter (exponential smoothing)
+        // smoothed = smoothed + coeff * (target - smoothed)
+        parameters_smoothed[i] += SMOOTHING_COEFF * (parameters[i] - parameters_smoothed[i]);
     }
 
     // Read encoder for page navigation
@@ -228,6 +244,7 @@ int main(void)
     for(int i = 0; i < TOTAL_PARAMS; i++)
     {
         parameters[i] = 0.5f;
+        parameters_smoothed[i] = 0.5f;  // Start smoothed values at same position
     }
 
     // Initialize pot values
