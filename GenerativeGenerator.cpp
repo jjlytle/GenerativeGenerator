@@ -620,6 +620,10 @@ uint8_t generate_next_note()
 // Send MIDI note output
 void send_midi_note(uint8_t note, uint8_t velocity)
 {
+    // Hard clamp MIDI note to valid range: 0-127 (C0 to G9)
+    if(note > 127) note = 127;
+    // note is uint8_t so it can't be < 0
+
     // Send Note On message (status byte + 2 data bytes)
     uint8_t midi_data[3];
     midi_data[0] = 0x90;  // Note On, channel 1
@@ -854,28 +858,32 @@ void UpdateDisplay()
         }
     }
 
-    // Learning state indicator (bottom left)
+    // Learning state indicator (bottom left) - always show state
     hw.display.SetCursor(0, 56);
     if(learning_state == STATE_LEARNING)
     {
-        // Show "LEARN" and note count
+        // Show "L:" and note count
         std::string learn_str = "L:" + std::to_string(note_buffer_count);
         hw.display.WriteString((char*)learn_str.c_str(), Font_6x8, true);
     }
     else if(learning_state == STATE_GENERATING)
     {
-        // Show "GEN" and buffer size
+        // Show "G:" and buffer size
         std::string gen_str = "G:" + std::to_string(note_buffer_count);
         hw.display.WriteString((char*)gen_str.c_str(), Font_6x8, true);
     }
     else
     {
-        // IDLE: show BPM if clock detected
-        if(last_clock_time > 0)
-        {
-            std::string bpm_str = std::to_string((int)clock_bpm);
-            hw.display.WriteString((char*)bpm_str.c_str(), Font_6x8, true);
-        }
+        // IDLE: show dash
+        hw.display.WriteString((char*)"-", Font_6x8, true);
+    }
+
+    // BPM display (bottom center-left) - always show if clock detected
+    if(last_clock_time > 0)
+    {
+        hw.display.SetCursor(30, 56);
+        std::string bpm_str = std::to_string((int)clock_bpm) + "bpm";
+        hw.display.WriteString((char*)bpm_str.c_str(), Font_6x8, true);
     }
 
     // Clock/Gate indicator (bottom right)
@@ -1090,7 +1098,9 @@ void UpdateControls()
         page_change_timer--;
     }
 
-    // Read gate/clock input
+    // Read gate/clock input (Gate Input 1)
+    // Note: Gate Input 1 is used ONLY for clock/tempo detection
+    // Note learning is triggered by MIDI input, not gates
     gate_in_prev = gate_in_state;
     gate_in_state = hw.gate_input[0].State();
 
