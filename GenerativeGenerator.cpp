@@ -155,20 +155,30 @@ void UpdateDisplay()
         float param_value = parameters_smoothed[param_index];
         bool is_active = param_pickup_active[param_index];
 
-        // Bar graph (0-70 pixels) - showing smoothed parameter value
-        int bar_width = (int)(param_value * 70.0f);
-        for(int x = 0; x < bar_width; x++)
-        {
-            hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
-        }
+        // Get current pot position for this parameter
+        float pot_position = pot_values[i];
+        int pot_x = 56 + (int)(pot_position * 70.0f);
 
         // Border (solid if active, dashed if waiting for pickup)
         if(is_active)
         {
+            // Active: show filled bar at stored value
+            int bar_width = (int)(param_value * 70.0f);
+            for(int x = 0; x < bar_width; x++)
+            {
+                hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
+            }
             hw.display.DrawRect(56, y, 126, y + 7, true, false);
         }
         else
         {
+            // Not active: show stored value as filled bar, pot position as hollow indicator
+            int bar_width = (int)(param_value * 70.0f);
+            for(int x = 0; x < bar_width; x++)
+            {
+                hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
+            }
+
             // Dashed border to show waiting for pickup
             for(int x = 56; x < 126; x += 4)
             {
@@ -178,9 +188,11 @@ void UpdateDisplay()
             hw.display.DrawLine(56, y, 56, y + 7, true);
             hw.display.DrawLine(126, y, 126, y + 7, true);
 
-            // Show target marker (small vertical line at target position)
-            int target_x = 56 + bar_width;
-            hw.display.DrawLine(target_x, y - 1, target_x, y + 8, true);
+            // Show current pot position as hollow rectangle (3 pixels wide)
+            if(pot_x > 56 && pot_x < 126)
+            {
+                hw.display.DrawRect(pot_x - 1, y + 1, pot_x + 1, y + 5, true, false);
+            }
         }
     }
 
