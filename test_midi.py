@@ -33,7 +33,7 @@ def send_note_sequence(port_name, notes, note_duration=0.5, gap_duration=0.1):
                 # Send Note On
                 msg = mido.Message('note_on', note=note, velocity=100)
                 port.send(msg)
-                print(f"  {i+1}. Note On: {note} (MIDI name: {mido.note_name(note)})")
+                print(f"  {i+1}. Note On: {note}")
 
                 time.sleep(note_duration)
 
