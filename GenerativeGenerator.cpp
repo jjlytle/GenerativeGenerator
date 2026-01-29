@@ -72,10 +72,15 @@ float pot_values[4];
 // Higher values = less smoothing, better for fast tweaking
 const float SMOOTHING_COEFF = 0.15f;
 
-// Clock/Gate detection state
-bool  gate_in_state = false;
-bool  gate_in_prev = false;
-bool  clock_triggered = false;  // True for one frame after rising edge
+// Gate inputs
+// Gate Input 1: Note trigger (generates new note when HIGH during GENERATING)
+bool  gate1_state = false;
+bool  gate1_prev = false;
+bool  note_triggered = false;  // True for one frame after rising edge
+
+// Gate Input 2: Clock/BPM detection
+bool  gate2_state = false;
+bool  gate2_prev = false;
 uint32_t last_clock_time = 0;
 uint32_t clock_interval = 0;    // Time between clock pulses (in ms)
 float clock_bpm = 120.0f;        // Estimated tempo
@@ -888,7 +893,7 @@ void UpdateDisplay()
 
     // Clock/Gate indicator (bottom right)
     // Show filled box when gate is high
-    if(gate_in_state)
+    if(gate2_state)
     {
         hw.display.DrawRect(100, 56, 112, 63, true, true);
     }
@@ -899,7 +904,7 @@ void UpdateDisplay()
 
     // Show "CLK" label
     hw.display.SetCursor(102, 56);
-    hw.display.WriteString((char*)"C", Font_6x8, !gate_in_state);
+    hw.display.WriteString((char*)"C", Font_6x8, !gate2_state);
 
     // Pitch visualization (right side, vertical bar showing current note)
     if(learning_state == STATE_GENERATING)
@@ -1098,18 +1103,16 @@ void UpdateControls()
         page_change_timer--;
     }
 
-    // Read gate/clock input (Gate Input 1)
-    // Note: Gate Input 1 is used ONLY for clock/tempo detection
-    // Note learning is triggered by MIDI input, not gates
-    gate_in_prev = gate_in_state;
-    gate_in_state = hw.gate_input[0].State();
+    // Read Gate Input 1 (Note Trigger)
+    // Used to trigger note generation during GENERATING state
+    gate1_prev = gate1_state;
+    gate1_state = hw.gate_input[0].State();
 
-    // Detect rising edge (clock trigger)
-    clock_triggered = false;
-    if(gate_in_state && !gate_in_prev)
+    // Detect rising edge on Gate 1 (note trigger)
+    note_triggered = false;
+    if(gate1_state && !gate1_prev)
     {
-        clock_triggered = true;
-        clock_pulse_indicator = 5;  // Show pulse for 5 frames (~150ms at 30fps)
+        note_triggered = true;
         log_debug(DBG_CLOCK_PULSE);
 
         // Generate new note if in generating mode
@@ -1135,6 +1138,17 @@ void UpdateControls()
                 gate_length_ms = 50.0f;  // Default 50ms if no clock yet
             }
         }
+    }
+
+    // Read Gate Input 2 (Clock/BPM Detection)
+    // Used to measure tempo continuously
+    gate2_prev = gate2_state;
+    gate2_state = hw.gate_input[1].State();
+
+    // Detect rising edge on Gate 2 (BPM clock)
+    if(gate2_state && !gate2_prev)
+    {
+        clock_pulse_indicator = 5;  // Show pulse for 5 frames (~150ms at 30fps)
 
         // Measure time since last clock pulse
         uint32_t current_time = System::GetNow();
@@ -1188,8 +1202,8 @@ void UpdateControls()
     }
     else
     {
-        // IDLE: show gate input
-        hw.seed.SetLed(gate_in_state);
+        // IDLE: show gate input (clock on Gate 2)
+        hw.seed.SetLed(gate2_state);
     }
 }
 
