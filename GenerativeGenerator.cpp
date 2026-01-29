@@ -306,6 +306,14 @@ bool apply_memory_bias(uint8_t candidate_note)
     // Get MEMORY parameter (0.0 = avoid repeats, 0.5 = neutral, 1.0 = favor repeats)
     float memory_param = parameters_smoothed[PARAM_MEMORY];
 
+    // Apply energy scaling to memory
+    // High energy = seek more novelty (reduce memory toward 0.0)
+    float energy = parameters_smoothed[PARAM_ENERGY];
+    float energy_deviation = (energy - 0.5f) * 2.0f;  // -1.0 to +1.0
+    memory_param = memory_param - (energy_deviation * 0.3f);  // Energy biases toward novelty
+    if(memory_param < 0.0f) memory_param = 0.0f;
+    if(memory_param > 1.0f) memory_param = 1.0f;
+
     // Check if note is in recent history
     int history_count = count_in_history(candidate_note);
 
@@ -394,9 +402,17 @@ bool select_direction()
                              target_probability * blend_factor;
 
     // Apply register gravity - bias direction toward center pitch
-    // Gravity increases as we approach phrase target length
+    // Gravity increases as we approach phrase target length, decreases with high energy
     float gravity_influence = 0.0f;
     float effective_gravity = register_gravity;
+
+    // Apply energy scaling to gravity
+    // High energy = less gravity (more exploration)
+    float energy = parameters_smoothed[PARAM_ENERGY];
+    float energy_deviation = (energy - 0.5f) * 2.0f;  // -1.0 to +1.0
+    effective_gravity = register_gravity - (energy_deviation * 0.3f);  // Energy reduces gravity
+    if(effective_gravity < 0.0f) effective_gravity = 0.0f;
+    if(effective_gravity > 1.0f) effective_gravity = 1.0f;
 
     // Boost gravity near phrase boundaries
     if(phrase_target_length > 0)
@@ -405,7 +421,7 @@ bool select_direction()
         if(phrase_progress > 0.7f)  // In last 30% of phrase
         {
             float phrase_boost = (phrase_progress - 0.7f) / 0.3f;  // 0.0 to 1.0
-            effective_gravity = register_gravity + (phrase_boost * 0.3f);  // Add up to 0.3
+            effective_gravity = effective_gravity + (phrase_boost * 0.3f);  // Add up to 0.3
             if(effective_gravity > 1.0f) effective_gravity = 1.0f;
         }
     }
@@ -440,6 +456,14 @@ uint8_t apply_octave_displacement(uint8_t note)
 {
     // Get RANGE_WIDTH parameter (0.0 = no displacement, 1.0 = frequent/large displacements)
     float range_param = parameters_smoothed[PARAM_RANGE_WIDTH];
+
+    // Apply energy scaling to range
+    // High energy = more octave displacements
+    float energy = parameters_smoothed[PARAM_ENERGY];
+    float energy_deviation = (energy - 0.5f) * 2.0f;  // -1.0 to +1.0
+    range_param = range_param + (energy_deviation * 0.3f);  // Energy adds up to ±0.3
+    if(range_param < 0.0f) range_param = 0.0f;
+    if(range_param > 1.0f) range_param = 1.0f;
 
     // No displacement if parameter very low
     if(range_param < 0.1f)
@@ -487,15 +511,26 @@ uint8_t generate_next_note()
     int attempts = 0;
     const int MAX_ATTEMPTS = 4;  // Try up to 4 times to find acceptable note
 
-    // Get MOTION parameter (0.0 = stepwise, 1.0 = leaps)
-    float motion_bias = parameters_smoothed[PARAM_MOTION];
+    // Get ENERGY macro parameter (0.0 = low energy/calm, 1.0 = high energy/wild)
+    float energy = parameters_smoothed[PARAM_ENERGY];
 
-    // Update phrase target length from PHRASE parameter
-    // PHRASE parameter maps to phrase length:
-    // 0.0 = 4 notes (very short)
-    // 0.5 = 12 notes (medium)
-    // 1.0 = 32 notes (long)
+    // Apply energy scaling to other parameters
+    // Energy modulates: motion (more leaps), memory (less repetition), phrase length
+    // Energy centered at 0.5 = neutral, deviations scale effects
+
+    float energy_deviation = (energy - 0.5f) * 2.0f;  // -1.0 to +1.0
+
+    // Get MOTION parameter and apply energy boost
+    float motion_bias = parameters_smoothed[PARAM_MOTION];
+    motion_bias = motion_bias + (energy_deviation * 0.3f);  // Energy adds up to ±0.3
+    if(motion_bias < 0.0f) motion_bias = 0.0f;
+    if(motion_bias > 1.0f) motion_bias = 1.0f;
+
+    // Update phrase target length from PHRASE parameter, scaled by energy
     float phrase_param = parameters_smoothed[PARAM_PHRASE];
+    phrase_param = phrase_param + (energy_deviation * 0.2f);  // Energy adds up to ±0.2
+    if(phrase_param < 0.0f) phrase_param = 0.0f;
+    if(phrase_param > 1.0f) phrase_param = 1.0f;
     phrase_target_length = (int)(4.0f + phrase_param * 28.0f);  // 4 to 32 range
 
     // Try generating notes until memory bias accepts one (or max attempts reached)
