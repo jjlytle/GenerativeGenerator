@@ -241,6 +241,215 @@ void analyze_learned_notes()
     }
 }
 
+// ============================================================================
+// NOTE GENERATION SYSTEM
+// ============================================================================
+
+// Generation state
+uint8_t current_note = 60;       // Current generated note (MIDI)
+uint8_t previous_note = 60;      // Previous note for direction memory
+int last_interval = 0;           // Last interval taken
+bool last_direction_up = true;   // Last direction was ascending
+
+// Simple random number generator (XORshift)
+uint32_t rng_state = 12345;
+uint32_t xorshift32()
+{
+    rng_state ^= rng_state << 13;
+    rng_state ^= rng_state >> 17;
+    rng_state ^= rng_state << 5;
+    return rng_state;
+}
+
+// Random float 0.0 to 1.0
+float random_float()
+{
+    return (float)xorshift32() / 4294967296.0f;
+}
+
+// Weighted random selection from interval histogram
+// Returns interval size (0-12 semitones)
+int select_interval_from_distribution()
+{
+    if(tendencies.total_intervals == 0)
+        return 2;  // Default to whole step if no data
+
+    // Build cumulative weights
+    int cumulative[13];
+    int total = 0;
+    for(int i = 0; i <= 12; i++)
+    {
+        total += tendencies.interval_counts[i];
+        cumulative[i] = total;
+    }
+
+    // Select random point in distribution
+    int rand_val = (int)(random_float() * total);
+
+    // Find which interval this corresponds to
+    for(int i = 0; i <= 12; i++)
+    {
+        if(rand_val < cumulative[i])
+            return i;
+    }
+
+    return 2;  // Fallback
+}
+
+// Select direction based on learned tendencies, DIRECTION parameter, and register gravity
+// Returns true for ascending, false for descending
+bool select_direction()
+{
+    // Get direction parameter (0.0 = all down, 0.5 = neutral, 1.0 = all up)
+    float direction_bias = parameters_smoothed[PARAM_DIRECTION];
+
+    // Get register gravity parameter (0.0 = no gravity, 1.0 = strong pull to center)
+    float register_gravity = parameters_smoothed[PARAM_REGISTER];
+
+    // Calculate base probability from learned tendencies
+    float learned_up_probability = 0.5f;
+    int total_directional = tendencies.ascending_count + tendencies.descending_count;
+    if(total_directional > 0)
+    {
+        learned_up_probability = (float)tendencies.ascending_count / (float)total_directional;
+    }
+
+    // Blend learned tendency with direction parameter
+    float blend_factor = fabs(direction_bias - 0.5f) * 2.0f;  // 0.0 to 1.0
+    float target_probability = (direction_bias > 0.5f) ? 1.0f : 0.0f;
+    float base_probability = learned_up_probability * (1.0f - blend_factor) +
+                             target_probability * blend_factor;
+
+    // Apply register gravity - bias direction toward center pitch
+    float gravity_influence = 0.0f;
+    if(register_gravity > 0.05f)  // Only apply if parameter is meaningfully set
+    {
+        // Calculate distance from learned center (in semitones)
+        float distance_from_center = current_note - tendencies.register_center;
+
+        // Normalize to roughly -1.0 to +1.0 (assuming ±24 semitone typical range)
+        float normalized_distance = distance_from_center / 24.0f;
+        if(normalized_distance < -1.0f) normalized_distance = -1.0f;
+        if(normalized_distance > 1.0f) normalized_distance = 1.0f;
+
+        // Gravity pulls toward center:
+        // If above center (positive distance), bias downward (negative influence)
+        // If below center (negative distance), bias upward (positive influence)
+        gravity_influence = -normalized_distance * register_gravity;
+    }
+
+    // Apply gravity as probability shift (-0.5 to +0.5 max)
+    float final_probability = base_probability + (gravity_influence * 0.5f);
+    if(final_probability < 0.0f) final_probability = 0.0f;
+    if(final_probability > 1.0f) final_probability = 1.0f;
+
+    return random_float() < final_probability;
+}
+
+// Apply octave displacement based on RANGE_WIDTH parameter
+// Occasionally transposes notes by ±1 or ±2 octaves for variety
+uint8_t apply_octave_displacement(uint8_t note)
+{
+    // Get RANGE_WIDTH parameter (0.0 = no displacement, 1.0 = frequent/large displacements)
+    float range_param = parameters_smoothed[PARAM_RANGE_WIDTH];
+
+    // No displacement if parameter very low
+    if(range_param < 0.1f)
+        return note;
+
+    // Calculate displacement probability (0% at 0.0, ~20% at 1.0)
+    float displacement_probability = range_param * 0.2f;
+
+    // Most of the time, no displacement
+    if(random_float() > displacement_probability)
+        return note;
+
+    // Decide displacement amount based on RANGE setting
+    int octave_shift = 0;
+    if(range_param < 0.5f)
+    {
+        // Low range: only ±1 octave
+        octave_shift = (random_float() > 0.5f) ? 12 : -12;
+    }
+    else
+    {
+        // High range: can do ±1 or ±2 octaves
+        float roll = random_float();
+        if(roll < 0.5f)
+            octave_shift = 12;      // +1 octave
+        else if(roll < 0.75f)
+            octave_shift = -12;     // -1 octave
+        else if(roll < 0.875f)
+            octave_shift = 24;      // +2 octaves
+        else
+            octave_shift = -24;     // -2 octaves
+    }
+
+    // Apply displacement with MIDI range clamping
+    int displaced = note + octave_shift;
+    displaced = fmax(0, fmin(127, displaced));
+
+    return (uint8_t)displaced;
+}
+
+// Generate next note based on learned tendencies and parameters
+uint8_t generate_next_note()
+{
+    // Get MOTION parameter (0.0 = stepwise, 1.0 = leaps)
+    float motion_bias = parameters_smoothed[PARAM_MOTION];
+
+    // Select interval size from learned distribution
+    int interval_size = select_interval_from_distribution();
+
+    // Bias toward smaller or larger intervals based on MOTION parameter
+    if(motion_bias < 0.5f)
+    {
+        // Bias toward smaller intervals
+        float scale = motion_bias * 2.0f;  // 0.0 to 1.0
+        interval_size = (int)(interval_size * scale + 0.5f);
+        if(interval_size == 0 && random_float() > 0.5f)
+            interval_size = 1;  // Prefer steps over repeats when going small
+    }
+    else
+    {
+        // Bias toward larger intervals
+        float scale = (motion_bias - 0.5f) * 2.0f;  // 0.0 to 1.0
+        int boost = (int)(scale * 4.0f);  // Add up to 4 semitones
+        interval_size = fmin(interval_size + boost, 12);
+    }
+
+    // Select direction (includes register gravity influence)
+    bool go_up = select_direction();
+
+    // Apply interval with direction
+    int signed_interval = go_up ? interval_size : -interval_size;
+    int new_note = current_note + signed_interval;
+
+    // Clamp to MIDI range
+    new_note = fmax(0, fmin(127, new_note));
+
+    // Apply octave displacement for variety
+    new_note = apply_octave_displacement(new_note);
+
+    // Store for next iteration
+    previous_note = current_note;
+    last_interval = signed_interval;
+    last_direction_up = go_up;
+
+    return (uint8_t)new_note;
+}
+
+// Send MIDI note output
+void send_midi_note(uint8_t note, uint8_t velocity)
+{
+    // Send Note On message (status byte + 2 data bytes)
+    uint8_t midi_data[3];
+    midi_data[0] = 0x90;  // Note On, channel 1
+    midi_data[1] = note;
+    midi_data[2] = velocity;
+    hw.midi.SendMessage(midi_data, 3);
+}
+
 // CV to MIDI conversion (for pitch CV input)
 // Assumes CV input is calibrated for 1V/octave
 float cv_to_midi_note(float cv_voltage)
@@ -294,6 +503,16 @@ void update_learning_state()
 
             // Analyze learned notes and extract tendencies
             analyze_learned_notes();
+
+            // Initialize generation state from learned notes
+            // Start at the register center
+            current_note = (uint8_t)tendencies.register_center;
+            previous_note = current_note;
+            last_interval = 0;
+            last_direction_up = (tendencies.ascending_count >= tendencies.descending_count);
+
+            // Seed RNG with current time for variety
+            rng_state = System::GetNow();
         }
     }
 }
@@ -631,6 +850,13 @@ void UpdateControls()
         clock_triggered = true;
         clock_pulse_indicator = 5;  // Show pulse for 5 frames (~150ms at 30fps)
         log_debug(DBG_CLOCK_PULSE);
+
+        // Generate new note if in generating mode
+        if(learning_state == STATE_GENERATING && note_buffer_count >= MIN_LEARN_NOTES)
+        {
+            current_note = generate_next_note();
+            send_midi_note(current_note, 100);  // Velocity 100
+        }
 
         // Measure time since last clock pulse
         uint32_t current_time = System::GetNow();
