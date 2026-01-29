@@ -893,6 +893,31 @@ void UpdateDisplay()
     hw.display.SetCursor(102, 56);
     hw.display.WriteString((char*)"C", Font_6x8, !gate_in_state);
 
+    // Pitch visualization (right side, vertical bar showing current note)
+    if(learning_state == STATE_GENERATING)
+    {
+        // Map MIDI note (0-127) to vertical position (12-55)
+        // Higher notes = higher on screen (lower y value)
+        // Display area: y=12 (top) to y=55 (bottom) = 43 pixels
+        float note_normalized = (float)current_note / 127.0f;  // 0.0 to 1.0
+        int note_y = 55 - (int)(note_normalized * 43.0f);       // 55 (low) to 12 (high)
+
+        // Draw vertical pitch reference bar (right edge)
+        hw.display.DrawLine(126, 12, 126, 55, true);
+
+        // Draw current note position as filled circle/dot
+        hw.display.DrawCircle(126, note_y, 2, true);
+
+        // Optional: show register center as reference line
+        if(note_buffer_count >= MIN_LEARN_NOTES)
+        {
+            float center_normalized = tendencies.register_center / 127.0f;
+            int center_y = 55 - (int)(center_normalized * 43.0f);
+            // Draw small horizontal tick at center
+            hw.display.DrawLine(123, center_y, 125, center_y, true);
+        }
+    }
+
     // Page change overlay (shows for 2 seconds after page change)
     if(page_change_timer > 0)
     {
