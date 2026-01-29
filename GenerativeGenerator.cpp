@@ -20,11 +20,25 @@ using namespace daisysp;
 // Hardware
 DaisyPatch hw;
 
+// Page system
+int   current_page = 0;      // 0, 1, 2 for 3 pages
+const int NUM_PAGES = 3;
+
+// Parameter names for each page (4 params per page)
+const char* page_names[NUM_PAGES][4] = {
+    // Page 0: Performance - Direct Control
+    {"MOTION", "MEMORY", "REGISTER", "DIRECTION"},
+    // Page 1: Performance - Macro & Evolution
+    {"PHRASE", "ENERGY", "STABILITY", "FORGET"},
+    // Page 2: Structural - Shape & Gravity
+    {"LEAP SHP", "DIR MEM", "HOME REG", "RANGE"}
+};
+
 // Test variables
 float pot_values[4];
-int   encoder_position = 0;
 bool  gate_in_state = false;
 int   frame_counter = 0;
+int   page_change_timer = 0;  // For showing page name overlay
 
 void AudioCallback(AudioHandle::InputBuffer  in,
                    AudioHandle::OutputBuffer out,
@@ -44,10 +58,27 @@ void UpdateDisplay()
 {
     hw.display.Fill(false);
 
-    // Title
+    // Page indicator dots (top right)
+    for(int i = 0; i < NUM_PAGES; i++)
+    {
+        int x = 110 + (i * 6);
+        int y = 2;
+        if(i == current_page)
+        {
+            // Filled circle for current page
+            hw.display.DrawCircle(x, y, 2, true);
+        }
+        else
+        {
+            // Empty circle for other pages
+            hw.display.DrawCircle(x, y, 2, false);
+        }
+    }
+
+    // Page name (top left)
     hw.display.SetCursor(0, 0);
-    std::string title = "GEN HARDWARE TEST";
-    hw.display.WriteString((char*)title.c_str(), Font_6x8, true);
+    std::string page_title = "PAGE " + std::to_string(current_page + 1);
+    hw.display.WriteString((char*)page_title.c_str(), Font_6x8, true);
 
     // Draw line separator
     for(int x = 0; x < 128; x++)
@@ -55,43 +86,54 @@ void UpdateDisplay()
         hw.display.DrawPixel(x, 12, true);
     }
 
-    // Pot values (as bar graphs)
+    // Parameter names and values (4 params per page)
     for(int i = 0; i < 4; i++)
     {
         int y = 16 + (i * 11);
 
-        // Label
-        std::string label = "P" + std::to_string(i + 1);
+        // Parameter name from current page
         hw.display.SetCursor(0, y);
-        hw.display.WriteString((char*)label.c_str(), Font_6x8, true);
+        hw.display.WriteString((char*)page_names[current_page][i], Font_6x8, true);
 
-        // Bar graph (0-100 pixels)
-        int bar_width = (int)(pot_values[i] * 100.0f);
+        // Bar graph (0-70 pixels) - shorter to fit parameter names
+        int bar_width = (int)(pot_values[i] * 70.0f);
         for(int x = 0; x < bar_width; x++)
         {
-            hw.display.DrawLine(16 + x, y, 16 + x, y + 6, true);
+            hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
         }
 
         // Border
-        hw.display.DrawRect(16, y, 116, y + 7, true, false);
+        hw.display.DrawRect(56, y, 126, y + 7, true, false);
     }
 
-    // Encoder position
-    hw.display.SetCursor(0, 56);
-    std::string enc = "ENC:" + std::to_string(encoder_position);
-    hw.display.WriteString((char*)enc.c_str(), Font_6x8, true);
-
-    // Gate indicator
+    // Gate indicator (bottom right)
     if(gate_in_state)
     {
-        hw.display.DrawRect(100, 56, 115, 63, true, true);
+        hw.display.DrawRect(115, 56, 127, 63, true, true);
     }
     else
     {
-        hw.display.DrawRect(100, 56, 115, 63, true, false);
+        hw.display.DrawRect(115, 56, 127, 63, true, false);
     }
-    hw.display.SetCursor(104, 56);
-    hw.display.WriteString((char*)"GT", Font_6x8, !gate_in_state);
+
+    // Page change overlay (shows for 2 seconds after page change)
+    if(page_change_timer > 0)
+    {
+        // Semi-transparent overlay box (just draw a box, can't do true transparency)
+        hw.display.DrawRect(10, 22, 118, 42, true, true);
+        hw.display.DrawRect(11, 23, 117, 41, false, false);
+
+        // Show page name in center
+        hw.display.SetCursor(30, 28);
+        std::string overlay_text;
+        if(current_page == 0)
+            overlay_text = "PERFORMANCE";
+        else if(current_page == 1)
+            overlay_text = "MACRO";
+        else
+            overlay_text = "STRUCTURAL";
+        hw.display.WriteString((char*)overlay_text.c_str(), Font_7x10, false);
+    }
 
     hw.display.Update();
 }
@@ -107,8 +149,34 @@ void UpdateControls()
         pot_values[i] = hw.controls[i].Process();
     }
 
-    // Read encoder
-    encoder_position += hw.encoder.Increment();
+    // Read encoder for page navigation
+    int encoder_change = hw.encoder.Increment();
+    if(encoder_change != 0)
+    {
+        current_page += encoder_change;
+
+        // Wrap around pages (0, 1, 2)
+        if(current_page < 0)
+            current_page = NUM_PAGES - 1;
+        else if(current_page >= NUM_PAGES)
+            current_page = 0;
+
+        // Show page change overlay for 2 seconds
+        page_change_timer = 60;  // 60 frames at 30fps = 2 seconds
+    }
+
+    // Encoder click resets to page 0
+    if(hw.encoder.RisingEdge())
+    {
+        current_page = 0;
+        page_change_timer = 60;
+    }
+
+    // Decrement page change timer
+    if(page_change_timer > 0)
+    {
+        page_change_timer--;
+    }
 
     // Read gate input
     gate_in_state = hw.gate_input[0].State();
