@@ -86,6 +86,43 @@ int   frame_counter = 0;
 int   page_change_timer = 0;  // For showing page name overlay
 
 // ============================================================================
+// DEBUG LOGGING (inspectable via debugger)
+// ============================================================================
+
+#define DEBUG_LOG_SIZE 64
+struct DebugLogEntry {
+    uint32_t timestamp;
+    uint8_t event_type;
+    uint8_t data1;
+    uint8_t data2;
+    uint8_t data3;
+};
+
+enum DebugEventType {
+    DBG_STARTUP = 0,
+    DBG_PAGE_CHANGE = 1,
+    DBG_NOTE_RECEIVED = 2,
+    DBG_LEARNING_START = 3,
+    DBG_LEARNING_STOP = 4,
+    DBG_PICKUP_ACTIVE = 5,
+    DBG_PICKUP_WAITING = 6,
+    DBG_CLOCK_PULSE = 7
+};
+
+DebugLogEntry debug_log[DEBUG_LOG_SIZE];
+int debug_log_index = 0;
+
+void log_debug(uint8_t event_type, uint8_t d1 = 0, uint8_t d2 = 0, uint8_t d3 = 0)
+{
+    debug_log[debug_log_index].timestamp = System::GetNow();
+    debug_log[debug_log_index].event_type = event_type;
+    debug_log[debug_log_index].data1 = d1;
+    debug_log[debug_log_index].data2 = d2;
+    debug_log[debug_log_index].data3 = d3;
+    debug_log_index = (debug_log_index + 1) % DEBUG_LOG_SIZE;
+}
+
+// ============================================================================
 // NOTE LEARNING SYSTEM
 // ============================================================================
 
@@ -125,6 +162,7 @@ void start_learning()
     learning_state = STATE_LEARNING;
     note_buffer_count = 0;
     last_note_time = System::GetNow();
+    log_debug(DBG_LEARNING_START);
 }
 
 // Add note to learning buffer
@@ -135,6 +173,7 @@ void add_note_to_buffer(uint8_t midi_note)
         note_buffer[note_buffer_count] = midi_note;
         note_buffer_count++;
         last_note_time = System::GetNow();
+        log_debug(DBG_NOTE_RECEIVED, midi_note, note_buffer_count);
 
         // Visual feedback: blink LED
         hw.seed.SetLed(true);
@@ -156,6 +195,8 @@ void update_learning_state()
            (time_since_note > LEARNING_TIMEOUT && note_buffer_count >= MIN_LEARN_NOTES))
         {
             learning_state = STATE_GENERATING;
+            log_debug(DBG_LEARNING_STOP, note_buffer_count,
+                     (time_since_note > LEARNING_TIMEOUT) ? 1 : 0);  // 1=timeout, 0=buffer full
             // TODO: Extract tendencies from buffer (Task 9)
         }
     }
@@ -388,6 +429,8 @@ void UpdateControls()
         else if(current_page >= NUM_PAGES)
             current_page = 0;
 
+        log_debug(DBG_PAGE_CHANGE, current_page);
+
         // Show page change overlay for 2 seconds
         page_change_timer = 60;  // 60 frames at 30fps = 2 seconds
 
@@ -491,6 +534,7 @@ void UpdateControls()
     {
         clock_triggered = true;
         clock_pulse_indicator = 5;  // Show pulse for 5 frames (~150ms at 30fps)
+        log_debug(DBG_CLOCK_PULSE);
 
         // Measure time since last clock pulse
         uint32_t current_time = System::GetNow();
@@ -539,6 +583,7 @@ int main(void)
 {
     // Initialize hardware
     hw.Init();
+    log_debug(DBG_STARTUP);
 
     // Start ADC for CV inputs (need this before reading pots)
     hw.StartAdc();
