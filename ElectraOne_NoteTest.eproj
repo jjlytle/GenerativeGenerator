@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 2,
+  "id": "generativeNoteTest",
+  "name": "Note Test - Generative",
+  "description": "Simple note pads for testing Daisy Patch GenerativeGenerator MIDI learning",
+  "lua": "",
+  "devices": [
+    {
+      "id": 1,
+      "name": "Daisy Patch",
+      "instrumentId": "generic-controls",
+      "port": 1,
+      "channel": 1
+    }
+  ],
+  "tiles": [
+    {
+      "id": "label-title",
+      "type": "label",
+      "name": "GENERATIVE GENERATOR TEST",
+      "categoryId": "label",
+      "deviceId": 1,
+      "color": "FFFFFF",
+      "slotId": 0,
+      "span": 6,
+      "vspan": 1
+    },
+    {
+      "id": "label-info",
+      "type": "label",
+      "name": "Press pads to send notes",
+      "categoryId": "label",
+      "deviceId": 1,
+      "color": "529DEC",
+      "slotId": 6,
+      "span": 6,
+      "vspan": 1
+    },
+    {
+      "id": "note-c4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F45C51",
+      "name": "C4",
+      "categoryId": "control",
+      "slotId": 12,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 60
+        }
+      }]
+    },
+    {
+      "id": "note-d4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F49500",
+      "name": "D4",
+      "categoryId": "control",
+      "slotId": 13,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 62
+        }
+      }]
+    },
+    {
+      "id": "note-e4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F4E500",
+      "name": "E4",
+      "categoryId": "control",
+      "slotId": 14,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 64
+        }
+      }]
+    },
+    {
+      "id": "note-f4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "03C548",
+      "name": "F4",
+      "categoryId": "control",
+      "slotId": 15,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 65
+        }
+      }]
+    },
+    {
+      "id": "note-g4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "529DEC",
+      "name": "G4",
+      "categoryId": "control",
+      "slotId": 16,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 67
+        }
+      }]
+    },
+    {
+      "id": "note-a4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "03A598",
+      "name": "A4",
+      "categoryId": "control",
+      "slotId": 17,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 69
+        }
+      }]
+    },
+    {
+      "id": "note-b4",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "C44795",
+      "name": "B4",
+      "categoryId": "control",
+      "slotId": 18,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 71
+        }
+      }]
+    },
+    {
+      "id": "note-c5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F45C51",
+      "name": "C5",
+      "categoryId": "control",
+      "slotId": 19,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 72
+        }
+      }]
+    },
+    {
+      "id": "note-d5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F49500",
+      "name": "D5",
+      "categoryId": "control",
+      "slotId": 20,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 74
+        }
+      }]
+    },
+    {
+      "id": "note-e5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F4E500",
+      "name": "E5",
+      "categoryId": "control",
+      "slotId": 21,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 76
+        }
+      }]
+    },
+    {
+      "id": "note-f5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "03C548",
+      "name": "F5",
+      "categoryId": "control",
+      "slotId": 22,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 77
+        }
+      }]
+    },
+    {
+      "id": "note-g5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "529DEC",
+      "name": "G5",
+      "categoryId": "control",
+      "slotId": 23,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 79
+        }
+      }]
+    },
+    {
+      "id": "label-page2",
+      "type": "label",
+      "name": "MORE NOTES",
+      "categoryId": "label",
+      "deviceId": 1,
+      "color": "FFFFFF",
+      "slotId": 0,
+      "pageId": 2,
+      "span": 6,
+      "vspan": 1
+    },
+    {
+      "id": "note-a5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "03A598",
+      "name": "A5",
+      "categoryId": "control",
+      "slotId": 12,
+      "pageId": 2,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 81
+        }
+      }]
+    },
+    {
+      "id": "note-b5",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "C44795",
+      "name": "B5",
+      "categoryId": "control",
+      "slotId": 13,
+      "pageId": 2,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 83
+        }
+      }]
+    },
+    {
+      "id": "note-c6",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F45C51",
+      "name": "C6",
+      "categoryId": "control",
+      "slotId": 14,
+      "pageId": 2,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 84
+        }
+      }]
+    },
+    {
+      "id": "note-d6",
+      "type": "pad",
+      "deviceId": 1,
+      "color": "F49500",
+      "name": "D6",
+      "categoryId": "control",
+      "slotId": 15,
+      "pageId": 2,
+      "values": [{
+        "message": {
+          "type": "note",
+          "noteNumber": 86
+        }
+      }]
+    }
+  ],
+  "pages": [
+    {"id": 1, "name": "NOTES 1"},
+    {"id": 2, "name": "NOTES 2"}
+  ],
+  "categories": [],
+  "firstPageId": 1
+}
