@@ -67,8 +67,16 @@ float pot_values[4];
 // Higher values = less smoothing, better for fast tweaking
 const float SMOOTHING_COEFF = 0.15f;
 
-// Other state
+// Clock/Gate detection state
 bool  gate_in_state = false;
+bool  gate_in_prev = false;
+bool  clock_triggered = false;  // True for one frame after rising edge
+uint32_t last_clock_time = 0;
+uint32_t clock_interval = 0;    // Time between clock pulses (in ms)
+float clock_bpm = 120.0f;        // Estimated tempo
+int   clock_pulse_indicator = 0; // Visual pulse countdown (frames)
+
+// Other state
 int   frame_counter = 0;
 int   page_change_timer = 0;  // For showing page name overlay
 
@@ -107,6 +115,16 @@ void UpdateDisplay()
         }
     }
 
+    // Clock pulse indicator (top left, next to page name)
+    if(clock_pulse_indicator > 0)
+    {
+        hw.display.DrawCircle(60, 2, 2, true);
+    }
+    else
+    {
+        hw.display.DrawCircle(60, 2, 2, false);
+    }
+
     // Page name (top left)
     hw.display.SetCursor(0, 0);
     std::string page_title = "PAGE " + std::to_string(current_page + 1);
@@ -142,14 +160,27 @@ void UpdateDisplay()
         hw.display.DrawRect(56, y, 126, y + 7, true, false);
     }
 
-    // Gate indicator (bottom right)
+    // Clock/Gate indicator (bottom right)
+    // Show filled box when gate is high
     if(gate_in_state)
     {
-        hw.display.DrawRect(115, 56, 127, 63, true, true);
+        hw.display.DrawRect(100, 56, 112, 63, true, true);
     }
     else
     {
-        hw.display.DrawRect(115, 56, 127, 63, true, false);
+        hw.display.DrawRect(100, 56, 112, 63, true, false);
+    }
+
+    // Show "CLK" label
+    hw.display.SetCursor(102, 56);
+    hw.display.WriteString((char*)"C", Font_6x8, !gate_in_state);
+
+    // Show BPM (if clock has been detected)
+    if(last_clock_time > 0)
+    {
+        hw.display.SetCursor(0, 56);
+        std::string bpm_str = std::to_string((int)clock_bpm);
+        hw.display.WriteString((char*)bpm_str.c_str(), Font_6x8, true);
     }
 
     // Page change overlay (shows for 2 seconds after page change)
@@ -228,8 +259,41 @@ void UpdateControls()
         page_change_timer--;
     }
 
-    // Read gate input
+    // Read gate/clock input
+    gate_in_prev = gate_in_state;
     gate_in_state = hw.gate_input[0].State();
+
+    // Detect rising edge (clock trigger)
+    clock_triggered = false;
+    if(gate_in_state && !gate_in_prev)
+    {
+        clock_triggered = true;
+        clock_pulse_indicator = 5;  // Show pulse for 5 frames (~150ms at 30fps)
+
+        // Measure time since last clock pulse
+        uint32_t current_time = System::GetNow();
+        if(last_clock_time > 0)
+        {
+            clock_interval = current_time - last_clock_time;
+
+            // Calculate BPM (assuming quarter notes)
+            // BPM = 60000 / interval_ms
+            if(clock_interval > 0)
+            {
+                clock_bpm = 60000.0f / (float)clock_interval;
+                // Clamp to reasonable range
+                if(clock_bpm < 20.0f) clock_bpm = 20.0f;
+                if(clock_bpm > 300.0f) clock_bpm = 300.0f;
+            }
+        }
+        last_clock_time = current_time;
+    }
+
+    // Decrement pulse indicator
+    if(clock_pulse_indicator > 0)
+    {
+        clock_pulse_indicator--;
+    }
 
     // Blink LED with gate
     hw.seed.SetLed(gate_in_state);
