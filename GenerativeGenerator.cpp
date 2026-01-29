@@ -257,6 +257,10 @@ uint8_t note_history[NOTE_HISTORY_SIZE];
 int note_history_count = 0;
 int note_history_index = 0;
 
+// Phrase length tracking
+int phrase_note_count = 0;       // Notes generated in current phrase
+int phrase_target_length = 12;   // Target phrase length (updated from PHRASE parameter)
+
 // Simple random number generator (XORshift)
 uint32_t rng_state = 12345;
 uint32_t xorshift32()
@@ -390,8 +394,23 @@ bool select_direction()
                              target_probability * blend_factor;
 
     // Apply register gravity - bias direction toward center pitch
+    // Gravity increases as we approach phrase target length
     float gravity_influence = 0.0f;
-    if(register_gravity > 0.05f)  // Only apply if parameter is meaningfully set
+    float effective_gravity = register_gravity;
+
+    // Boost gravity near phrase boundaries
+    if(phrase_target_length > 0)
+    {
+        float phrase_progress = (float)phrase_note_count / (float)phrase_target_length;
+        if(phrase_progress > 0.7f)  // In last 30% of phrase
+        {
+            float phrase_boost = (phrase_progress - 0.7f) / 0.3f;  // 0.0 to 1.0
+            effective_gravity = register_gravity + (phrase_boost * 0.3f);  // Add up to 0.3
+            if(effective_gravity > 1.0f) effective_gravity = 1.0f;
+        }
+    }
+
+    if(effective_gravity > 0.05f)  // Only apply if gravity is meaningful
     {
         // Calculate distance from learned center (in semitones)
         float distance_from_center = current_note - tendencies.register_center;
@@ -404,7 +423,7 @@ bool select_direction()
         // Gravity pulls toward center:
         // If above center (positive distance), bias downward (negative influence)
         // If below center (negative distance), bias upward (positive influence)
-        gravity_influence = -normalized_distance * register_gravity;
+        gravity_influence = -normalized_distance * effective_gravity;
     }
 
     // Apply gravity as probability shift (-0.5 to +0.5 max)
@@ -471,6 +490,14 @@ uint8_t generate_next_note()
     // Get MOTION parameter (0.0 = stepwise, 1.0 = leaps)
     float motion_bias = parameters_smoothed[PARAM_MOTION];
 
+    // Update phrase target length from PHRASE parameter
+    // PHRASE parameter maps to phrase length:
+    // 0.0 = 4 notes (very short)
+    // 0.5 = 12 notes (medium)
+    // 1.0 = 32 notes (long)
+    float phrase_param = parameters_smoothed[PARAM_PHRASE];
+    phrase_target_length = (int)(4.0f + phrase_param * 28.0f);  // 4 to 32 range
+
     // Try generating notes until memory bias accepts one (or max attempts reached)
     while(attempts < MAX_ATTEMPTS)
     {
@@ -522,6 +549,25 @@ uint8_t generate_next_note()
 
     // Add accepted note to history
     add_note_to_history(candidate_note);
+
+    // Update phrase tracking
+    phrase_note_count++;
+
+    // Check if we should reset phrase (soft boundary)
+    if(phrase_note_count >= phrase_target_length)
+    {
+        // Probabilistic reset - higher chance as we go past target
+        float overrun = (float)(phrase_note_count - phrase_target_length);
+        float reset_probability = 0.5f + (overrun / (float)phrase_target_length) * 0.5f;
+        if(reset_probability > 1.0f) reset_probability = 1.0f;
+
+        if(random_float() < reset_probability)
+        {
+            phrase_note_count = 0;
+            // Optionally reseed RNG for variation
+            rng_state ^= System::GetNow();
+        }
+    }
 
     // Store for next iteration
     previous_note = current_note;
@@ -608,6 +654,10 @@ void update_learning_state()
             note_history_index = 0;
             for(int i = 0; i < NOTE_HISTORY_SIZE; i++)
                 note_history[i] = 0;
+
+            // Initialize phrase tracking
+            phrase_note_count = 0;
+            phrase_target_length = 12;  // Default medium length
 
             // Seed RNG with current time for variety
             rng_state = System::GetNow();
