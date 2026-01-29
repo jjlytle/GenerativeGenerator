@@ -392,11 +392,15 @@ void UpdateControls()
         page_change_timer = 60;  // 60 frames at 30fps = 2 seconds
 
         // On page change, deactivate pickup for new page's parameters
-        // (they need to catch up to stored values)
+        // and read current pot positions to prevent spurious crosses
+        hw.ProcessAnalogControls();
         for(int i = 0; i < PARAMS_PER_PAGE; i++)
         {
             int param_index = (current_page * PARAMS_PER_PAGE) + i;
             param_pickup_active[param_index] = false;
+
+            // Update pot_last_value to current position to establish baseline
+            pot_last_value[param_index] = hw.controls[i].Process();
         }
     }
 
@@ -536,23 +540,38 @@ int main(void)
     // Initialize hardware
     hw.Init();
 
-    // Initialize all parameters to 0.5 (middle position)
-    for(int i = 0; i < TOTAL_PARAMS; i++)
-    {
-        parameters[i] = 0.5f;
-        parameters_smoothed[i] = 0.5f;  // Start smoothed values at same position
-        param_pickup_active[i] = true;  // All active at startup
-        pot_last_value[i] = 0.5f;       // Initialize to middle position
-    }
+    // Start ADC for CV inputs (need this before reading pots)
+    hw.StartAdc();
+    System::Delay(100);  // Give ADC time to stabilize
 
-    // Initialize pot values
+    // Read actual pot positions before initializing parameters
+    hw.ProcessAnalogControls();
     for(int i = 0; i < PARAMS_PER_PAGE; i++)
     {
-        pot_values[i] = 0.0f;
+        pot_values[i] = hw.controls[i].Process();
     }
 
-    // Start ADC for CV inputs
-    hw.StartAdc();
+    // Initialize parameters based on actual pot positions for page 0
+    // Other pages default to 0.5
+    for(int i = 0; i < TOTAL_PARAMS; i++)
+    {
+        if(i < PARAMS_PER_PAGE)
+        {
+            // Page 0: use actual pot positions
+            parameters[i] = pot_values[i];
+            parameters_smoothed[i] = pot_values[i];
+            param_pickup_active[i] = true;  // Active since they match
+            pot_last_value[i] = pot_values[i];
+        }
+        else
+        {
+            // Pages 1 & 2: default to middle position
+            parameters[i] = 0.5f;
+            parameters_smoothed[i] = 0.5f;
+            param_pickup_active[i] = false;  // Not active until picked up
+            pot_last_value[i] = pot_values[i % PARAMS_PER_PAGE];  // Set to current pot position
+        }
+    }
 
     // Start audio
     hw.StartAudio(AudioCallback);
