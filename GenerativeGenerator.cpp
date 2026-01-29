@@ -85,6 +85,82 @@ int   clock_pulse_indicator = 0; // Visual pulse countdown (frames)
 int   frame_counter = 0;
 int   page_change_timer = 0;  // For showing page name overlay
 
+// ============================================================================
+// NOTE LEARNING SYSTEM
+// ============================================================================
+
+// Learning states
+enum LearningState {
+    STATE_IDLE,        // Waiting for input
+    STATE_LEARNING,    // Recording notes
+    STATE_GENERATING   // Playing back variations
+};
+
+LearningState learning_state = STATE_IDLE;
+
+// Note buffer (stores MIDI note numbers 0-127)
+const int MIN_LEARN_NOTES = 4;
+const int MAX_LEARN_NOTES = 16;
+uint8_t note_buffer[MAX_LEARN_NOTES];
+int note_buffer_count = 0;
+
+// Learning input detection
+uint8_t last_note_in = 0;          // Last received note
+bool note_in_active = false;       // True when a note is being held
+uint32_t last_note_time = 0;       // Time of last note input (ms)
+const uint32_t LEARNING_TIMEOUT = 2000;  // Stop learning after 2s of no input
+
+// CV to MIDI conversion (for pitch CV input)
+// Assumes CV input is calibrated for 1V/octave
+float cv_to_midi_note(float cv_voltage)
+{
+    // CV range: -5V to +5V = 10 octaves = 120 semitones
+    // Center at C4 (MIDI 60)
+    return 60.0f + (cv_voltage * 12.0f);  // 12 semitones per volt
+}
+
+// Start learning from user input
+void start_learning()
+{
+    learning_state = STATE_LEARNING;
+    note_buffer_count = 0;
+    last_note_time = System::GetNow();
+}
+
+// Add note to learning buffer
+void add_note_to_buffer(uint8_t midi_note)
+{
+    if(learning_state == STATE_LEARNING && note_buffer_count < MAX_LEARN_NOTES)
+    {
+        note_buffer[note_buffer_count] = midi_note;
+        note_buffer_count++;
+        last_note_time = System::GetNow();
+
+        // Visual feedback: blink LED
+        hw.seed.SetLed(true);
+    }
+}
+
+// Check if learning should stop (timeout or buffer full)
+void update_learning_state()
+{
+    if(learning_state == STATE_LEARNING)
+    {
+        uint32_t current_time = System::GetNow();
+        uint32_t time_since_note = current_time - last_note_time;
+
+        // Stop learning if:
+        // 1. Buffer is full (16 notes), OR
+        // 2. Timeout (2 seconds) AND we have minimum notes (4)
+        if(note_buffer_count >= MAX_LEARN_NOTES ||
+           (time_since_note > LEARNING_TIMEOUT && note_buffer_count >= MIN_LEARN_NOTES))
+        {
+            learning_state = STATE_GENERATING;
+            // TODO: Extract tendencies from buffer (Task 9)
+        }
+    }
+}
+
 void AudioCallback(AudioHandle::InputBuffer  in,
                    AudioHandle::OutputBuffer out,
                    size_t                    size)
@@ -196,6 +272,30 @@ void UpdateDisplay()
         }
     }
 
+    // Learning state indicator (bottom left)
+    hw.display.SetCursor(0, 56);
+    if(learning_state == STATE_LEARNING)
+    {
+        // Show "LEARN" and note count
+        std::string learn_str = "L:" + std::to_string(note_buffer_count);
+        hw.display.WriteString((char*)learn_str.c_str(), Font_6x8, true);
+    }
+    else if(learning_state == STATE_GENERATING)
+    {
+        // Show "GEN" and buffer size
+        std::string gen_str = "G:" + std::to_string(note_buffer_count);
+        hw.display.WriteString((char*)gen_str.c_str(), Font_6x8, true);
+    }
+    else
+    {
+        // IDLE: show BPM if clock detected
+        if(last_clock_time > 0)
+        {
+            std::string bpm_str = std::to_string((int)clock_bpm);
+            hw.display.WriteString((char*)bpm_str.c_str(), Font_6x8, true);
+        }
+    }
+
     // Clock/Gate indicator (bottom right)
     // Show filled box when gate is high
     if(gate_in_state)
@@ -210,14 +310,6 @@ void UpdateDisplay()
     // Show "CLK" label
     hw.display.SetCursor(102, 56);
     hw.display.WriteString((char*)"C", Font_6x8, !gate_in_state);
-
-    // Show BPM (if clock has been detected)
-    if(last_clock_time > 0)
-    {
-        hw.display.SetCursor(0, 56);
-        std::string bpm_str = std::to_string((int)clock_bpm);
-        hw.display.WriteString((char*)bpm_str.c_str(), Font_6x8, true);
-    }
 
     // Page change overlay (shows for 2 seconds after page change)
     if(page_change_timer > 0)
@@ -245,6 +337,44 @@ void UpdateControls()
 {
     hw.ProcessAnalogControls();
     hw.ProcessDigitalControls();
+
+    // Process MIDI input for note learning
+    hw.midi.Listen();
+    while(hw.midi.HasEvents())
+    {
+        MidiEvent midi_event = hw.midi.PopEvent();
+
+        // Only process Note On messages (and Note On with velocity 0 = Note Off)
+        if(midi_event.type == NoteOn)
+        {
+            uint8_t note = midi_event.data[0];
+            uint8_t velocity = midi_event.data[1];
+
+            if(velocity > 0)
+            {
+                // Note On: start learning if idle, or add to buffer if learning
+                if(learning_state == STATE_IDLE)
+                {
+                    start_learning();
+                }
+                add_note_to_buffer(note);
+                note_in_active = true;
+                last_note_in = note;
+            }
+            else
+            {
+                // Note Off (velocity 0)
+                note_in_active = false;
+            }
+        }
+        else if(midi_event.type == NoteOff)
+        {
+            note_in_active = false;
+        }
+    }
+
+    // Update learning state (check for timeout)
+    update_learning_state();
 
     // Read encoder for page navigation (do this first to detect page changes)
     int encoder_change = hw.encoder.Increment();
@@ -323,11 +453,22 @@ void UpdateControls()
         parameters_smoothed[i] += SMOOTHING_COEFF * (parameters[i] - parameters_smoothed[i]);
     }
 
-    // Encoder click resets to page 0
+    // Encoder click behavior depends on learning state
     if(hw.encoder.RisingEdge())
     {
-        current_page = 0;
-        page_change_timer = 60;
+        if(learning_state == STATE_GENERATING)
+        {
+            // Reset learning: go back to IDLE, clear buffer
+            learning_state = STATE_IDLE;
+            note_buffer_count = 0;
+            page_change_timer = 30;  // Brief flash
+        }
+        else
+        {
+            // Normal behavior: reset to page 0
+            current_page = 0;
+            page_change_timer = 60;
+        }
     }
 
     // Decrement page change timer
@@ -372,8 +513,22 @@ void UpdateControls()
         clock_pulse_indicator--;
     }
 
-    // Blink LED with gate
-    hw.seed.SetLed(gate_in_state);
+    // LED indicates learning state
+    if(learning_state == STATE_LEARNING)
+    {
+        // Blink LED while learning (on when note active)
+        hw.seed.SetLed(note_in_active);
+    }
+    else if(learning_state == STATE_GENERATING)
+    {
+        // Pulse LED with clock when generating
+        hw.seed.SetLed(clock_pulse_indicator > 0);
+    }
+    else
+    {
+        // IDLE: show gate input
+        hw.seed.SetLed(gate_in_state);
+    }
 }
 
 int main(void)
