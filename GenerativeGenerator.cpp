@@ -623,6 +623,22 @@ void send_midi_note(uint8_t note, uint8_t velocity)
     hw.midi.SendMessage(midi_data, 3);
 }
 
+// MIDI to CV conversion for pitch output (1V/octave)
+// Maps MIDI note to 0-5V DAC range
+// C1 (MIDI 36) = 0V, C2 (48) = 1V, C3 (60) = 2V, C4 (72) = 3V, C5 (84) = 4V, C6 (96) = 5V
+float midi_note_to_cv(uint8_t midi_note)
+{
+    // 1V/octave standard: each octave (12 semitones) = 1 volt
+    // Reference: MIDI 36 (C1) = 0V
+    float cv = (float)(midi_note - 36) / 12.0f;
+
+    // Clamp to DAC range (0-5V)
+    if(cv < 0.0f) cv = 0.0f;
+    if(cv > 5.0f) cv = 5.0f;
+
+    return cv;
+}
+
 // CV to MIDI conversion (for pitch CV input)
 // Assumes CV input is calibrated for 1V/octave
 float cv_to_midi_note(float cv_voltage)
@@ -631,6 +647,28 @@ float cv_to_midi_note(float cv_voltage)
     // Center at C4 (MIDI 60)
     return 60.0f + (cv_voltage * 12.0f);  // 12 semitones per volt
 }
+
+// DAC callback for CV pitch output (only for Daisy Patch SM)
+// Full Daisy Patch doesn't have CV outputs - uses MIDI instead
+// Keeping this code commented for reference/future PatchSM port
+/*
+void CvCallback(uint16_t **output, size_t size)
+{
+    for(size_t i = 0; i < size; i++)
+    {
+        // Convert current MIDI note to CV voltage (0-5V)
+        float cv_voltage = midi_note_to_cv(current_note);
+
+        // Convert to 12-bit DAC value (0-4095)
+        // DAC range: 0 = 0V, 4095 = ~5V
+        uint16_t dac_value = (uint16_t)(cv_voltage * 4095.0f / 5.0f);
+
+        // Output to both CV outputs
+        output[0][i] = dac_value;  // CV OUT 1
+        output[1][i] = dac_value;  // CV OUT 2
+    }
+}
+*/
 
 // Start learning from user input
 void start_learning()
@@ -1125,6 +1163,10 @@ int main(void)
 
     // Start audio
     hw.StartAudio(AudioCallback);
+
+    // Note: Full Daisy Patch doesn't have CV DAC outputs
+    // CV output is only available on Daisy Patch SM
+    // This module uses MIDI output instead (already implemented)
 
     // Display startup message
     hw.display.Fill(false);
