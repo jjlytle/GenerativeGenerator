@@ -81,6 +81,11 @@ uint32_t clock_interval = 0;    // Time between clock pulses (in ms)
 float clock_bpm = 120.0f;        // Estimated tempo
 int   clock_pulse_indicator = 0; // Visual pulse countdown (frames)
 
+// Gate output state
+bool  gate_out_state = false;    // Current gate output state
+uint32_t gate_out_start_time = 0; // When gate went high (ms)
+float gate_length_ms = 50.0f;    // Gate length in milliseconds
+
 // Other state
 int   frame_counter = 0;
 int   page_change_timer = 0;  // For showing page name overlay
@@ -1077,6 +1082,23 @@ void UpdateControls()
         {
             current_note = generate_next_note();
             send_midi_note(current_note, 100);  // Velocity 100
+
+            // Trigger gate output
+            gate_out_state = true;
+            gate_out_start_time = System::GetNow();
+            dsy_gpio_write(&hw.gate_output, 1);  // Set gate HIGH
+
+            // Calculate gate length as 50% of clock interval (or 50ms minimum)
+            if(clock_interval > 0)
+            {
+                gate_length_ms = (float)clock_interval * 0.5f;
+                if(gate_length_ms < 20.0f) gate_length_ms = 20.0f;    // Min 20ms
+                if(gate_length_ms > 500.0f) gate_length_ms = 500.0f;  // Max 500ms
+            }
+            else
+            {
+                gate_length_ms = 50.0f;  // Default 50ms if no clock yet
+            }
         }
 
         // Measure time since last clock pulse
@@ -1102,6 +1124,20 @@ void UpdateControls()
     if(clock_pulse_indicator > 0)
     {
         clock_pulse_indicator--;
+    }
+
+    // Update gate output timing
+    if(gate_out_state)
+    {
+        uint32_t current_time = System::GetNow();
+        uint32_t gate_elapsed = current_time - gate_out_start_time;
+
+        // Check if gate should go low
+        if(gate_elapsed >= (uint32_t)gate_length_ms)
+        {
+            gate_out_state = false;
+            dsy_gpio_write(&hw.gate_output, 0);  // Set gate LOW
+        }
     }
 
     // LED indicates learning state
