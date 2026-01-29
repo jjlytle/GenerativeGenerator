@@ -147,6 +147,100 @@ bool note_in_active = false;       // True when a note is being held
 uint32_t last_note_time = 0;       // Time of last note input (ms)
 const uint32_t LEARNING_TIMEOUT = 2000;  // Stop learning after 2s of no input
 
+// ============================================================================
+// TENDENCY ANALYSIS (extracted from learned notes)
+// ============================================================================
+
+struct LearnedTendencies {
+    // Interval distribution (histogram of interval sizes)
+    int interval_counts[13];  // 0=unison, 1=semitone, ... 12=octave
+    int total_intervals;
+
+    // Direction tendencies
+    int ascending_count;
+    int descending_count;
+    int repeat_count;        // Same note twice in a row
+
+    // Register analysis
+    float register_center;   // Average MIDI note number
+    float register_range;    // Max - min note
+    uint8_t register_min;
+    uint8_t register_max;
+
+    // Most common intervals (for weighted generation)
+    int most_common_interval;
+    int second_common_interval;
+};
+
+LearnedTendencies tendencies;
+
+// Analyze learned notes and extract tendencies
+void analyze_learned_notes()
+{
+    // Clear previous analysis
+    tendencies = LearnedTendencies();
+
+    if(note_buffer_count < 2)
+        return;  // Need at least 2 notes to analyze
+
+    // Find register min/max and calculate center
+    tendencies.register_min = 127;
+    tendencies.register_max = 0;
+    float note_sum = 0.0f;
+
+    for(int i = 0; i < note_buffer_count; i++)
+    {
+        uint8_t note = note_buffer[i];
+        if(note < tendencies.register_min) tendencies.register_min = note;
+        if(note > tendencies.register_max) tendencies.register_max = note;
+        note_sum += note;
+    }
+
+    tendencies.register_center = note_sum / (float)note_buffer_count;
+    tendencies.register_range = tendencies.register_max - tendencies.register_min;
+
+    // Analyze intervals between consecutive notes
+    for(int i = 0; i < note_buffer_count - 1; i++)
+    {
+        int interval = note_buffer[i + 1] - note_buffer[i];
+
+        // Count direction
+        if(interval > 0)
+            tendencies.ascending_count++;
+        else if(interval < 0)
+            tendencies.descending_count++;
+        else
+            tendencies.repeat_count++;
+
+        // Count interval size (use absolute value, cap at octave)
+        int interval_size = abs(interval);
+        if(interval_size > 12) interval_size = 12;  // Cap at octave
+
+        tendencies.interval_counts[interval_size]++;
+        tendencies.total_intervals++;
+    }
+
+    // Find most common intervals
+    int max_count = 0;
+    int second_max_count = 0;
+
+    for(int i = 0; i <= 12; i++)
+    {
+        if(tendencies.interval_counts[i] > max_count)
+        {
+            second_max_count = max_count;
+            tendencies.second_common_interval = tendencies.most_common_interval;
+            max_count = tendencies.interval_counts[i];
+            tendencies.most_common_interval = i;
+        }
+        else if(tendencies.interval_counts[i] > second_max_count)
+        {
+            second_max_count = tendencies.interval_counts[i];
+            tendencies.second_common_interval = i;
+        }
+    }
+}
+
 // CV to MIDI conversion (for pitch CV input)
 // Assumes CV input is calibrated for 1V/octave
 float cv_to_midi_note(float cv_voltage)
@@ -197,7 +291,9 @@ void update_learning_state()
             learning_state = STATE_GENERATING;
             log_debug(DBG_LEARNING_STOP, note_buffer_count,
                      (time_since_note > LEARNING_TIMEOUT) ? 1 : 0);  // 1=timeout, 0=buffer full
-            // TODO: Extract tendencies from buffer (Task 9)
+
+            // Analyze learned notes and extract tendencies
+            analyze_learned_notes();
         }
     }
 }
