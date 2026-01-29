@@ -23,9 +23,30 @@ DaisyPatch hw;
 // Page system
 int   current_page = 0;      // 0, 1, 2 for 3 pages
 const int NUM_PAGES = 3;
+const int PARAMS_PER_PAGE = 4;
+const int TOTAL_PARAMS = 12;
+
+// Parameter indices (for clarity)
+enum ParamIndex {
+    // Page 0: Performance - Direct Control
+    PARAM_MOTION = 0,
+    PARAM_MEMORY = 1,
+    PARAM_REGISTER = 2,
+    PARAM_DIRECTION = 3,
+    // Page 1: Performance - Macro & Evolution
+    PARAM_PHRASE = 4,
+    PARAM_ENERGY = 5,
+    PARAM_STABILITY = 6,
+    PARAM_FORGETFULNESS = 7,
+    // Page 2: Structural - Shape & Gravity
+    PARAM_LEAP_SHAPE = 8,
+    PARAM_DIRECTION_MEMORY = 9,
+    PARAM_HOME_REGISTER = 10,
+    PARAM_RANGE_WIDTH = 11
+};
 
 // Parameter names for each page (4 params per page)
-const char* page_names[NUM_PAGES][4] = {
+const char* page_names[NUM_PAGES][PARAMS_PER_PAGE] = {
     // Page 0: Performance - Direct Control
     {"MOTION", "MEMORY", "REGISTER", "DIRECTION"},
     // Page 1: Performance - Macro & Evolution
@@ -34,8 +55,13 @@ const char* page_names[NUM_PAGES][4] = {
     {"LEAP SHP", "DIR MEM", "HOME REG", "RANGE"}
 };
 
-// Test variables
+// Parameter storage (all 12 parameters, 0.0 to 1.0)
+float parameters[TOTAL_PARAMS];
+
+// Current pot readings (4 pots)
 float pot_values[4];
+
+// Other state
 bool  gate_in_state = false;
 int   frame_counter = 0;
 int   page_change_timer = 0;  // For showing page name overlay
@@ -87,7 +113,7 @@ void UpdateDisplay()
     }
 
     // Parameter names and values (4 params per page)
-    for(int i = 0; i < 4; i++)
+    for(int i = 0; i < PARAMS_PER_PAGE; i++)
     {
         int y = 16 + (i * 11);
 
@@ -95,8 +121,12 @@ void UpdateDisplay()
         hw.display.SetCursor(0, y);
         hw.display.WriteString((char*)page_names[current_page][i], Font_6x8, true);
 
-        // Bar graph (0-70 pixels) - shorter to fit parameter names
-        int bar_width = (int)(pot_values[i] * 70.0f);
+        // Get stored parameter value for this page/slot
+        int param_index = (current_page * PARAMS_PER_PAGE) + i;
+        float param_value = parameters[param_index];
+
+        // Bar graph (0-70 pixels) - showing stored parameter value
+        int bar_width = (int)(param_value * 70.0f);
         for(int x = 0; x < bar_width; x++)
         {
             hw.display.DrawLine(56 + x, y, 56 + x, y + 6, true);
@@ -144,9 +174,13 @@ void UpdateControls()
     hw.ProcessDigitalControls();
 
     // Read 4 potentiometers
-    for(int i = 0; i < 4; i++)
+    for(int i = 0; i < PARAMS_PER_PAGE; i++)
     {
         pot_values[i] = hw.controls[i].Process();
+
+        // Map pot to correct parameter based on current page
+        int param_index = (current_page * PARAMS_PER_PAGE) + i;
+        parameters[param_index] = pot_values[i];
     }
 
     // Read encoder for page navigation
@@ -190,8 +224,14 @@ int main(void)
     // Initialize hardware
     hw.Init();
 
-    // Initialize test variables
-    for(int i = 0; i < 4; i++)
+    // Initialize all parameters to 0.5 (middle position)
+    for(int i = 0; i < TOTAL_PARAMS; i++)
+    {
+        parameters[i] = 0.5f;
+    }
+
+    // Initialize pot values
+    for(int i = 0; i < PARAMS_PER_PAGE; i++)
     {
         pot_values[i] = 0.0f;
     }
