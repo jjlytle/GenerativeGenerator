@@ -21,10 +21,10 @@ using namespace daisysp;
 DaisyPatch hw;
 
 // Page system
-int   current_page = 0;      // 0, 1, 2 for 3 pages
-const int NUM_PAGES = 3;
+int   current_page = 0;      // 0, 1, 2, 3 for 4 pages
+const int NUM_PAGES = 4;
 const int PARAMS_PER_PAGE = 4;
-const int TOTAL_PARAMS = 12;
+const int TOTAL_PARAMS = 16;
 
 // Parameter indices (for clarity)
 enum ParamIndex {
@@ -42,7 +42,12 @@ enum ParamIndex {
     PARAM_LEAP_SHAPE = 8,
     PARAM_DIRECTION_MEMORY = 9,
     PARAM_HOME_REGISTER = 10,
-    PARAM_RANGE_WIDTH = 11
+    PARAM_RANGE_WIDTH = 11,
+    // Page 3: Utility - Learning & I/O
+    PARAM_LEARN_TIMEOUT = 12,
+    PARAM_ECHO_NOTES = 13,
+    PARAM_RESERVED_1 = 14,
+    PARAM_RESERVED_2 = 15
 };
 
 // Parameter names for each page (4 params per page)
@@ -52,12 +57,14 @@ const char* page_names[NUM_PAGES][PARAMS_PER_PAGE] = {
     // Page 1: Performance - Macro & Evolution
     {"PHRASE", "ENERGY", "STABILITY", "FORGET"},
     // Page 2: Structural - Shape & Gravity
-    {"LEAP SHP", "DIR MEM", "HOME REG", "RANGE"}
+    {"LEAP SHP", "DIR MEM", "HOME REG", "RANGE"},
+    // Page 3: Utility - Learning & I/O
+    {"LRN TIME", "ECHO", "---", "---"}
 };
 
 // MIDI CC mapping (CC number to parameter index)
 // Using undefined CCs to avoid conflicts with standard MIDI controllers
-const uint8_t MIDI_CC_COUNT = 12;
+const uint8_t MIDI_CC_COUNT = 16;
 const uint8_t midi_cc_numbers[MIDI_CC_COUNT] = {
     3,  // MOTION (Page 0, Param 0)
     9,  // MEMORY (Page 0, Param 1)
@@ -70,7 +77,11 @@ const uint8_t midi_cc_numbers[MIDI_CC_COUNT] = {
     24, // LEAP SHAPE (Page 2, Param 0)
     25, // DIRECTION MEMORY (Page 2, Param 1)
     26, // HOME REGISTER (Page 2, Param 2)
-    27  // RANGE WIDTH (Page 2, Param 3)
+    27, // RANGE WIDTH (Page 2, Param 3)
+    28, // LEARN TIMEOUT (Page 3, Param 0)
+    29, // ECHO NOTES (Page 3, Param 1)
+    30, // RESERVED (Page 3, Param 2)
+    31  // RESERVED (Page 3, Param 3)
 };
 
 // Parameter storage (all 12 parameters, 0.0 to 1.0)
@@ -173,7 +184,7 @@ int note_buffer_count = 0;
 uint8_t last_note_in = 0;          // Last received note
 bool note_in_active = false;       // True when a note is being held
 uint32_t last_note_time = 0;       // Time of last note input (ms)
-const uint32_t LEARNING_TIMEOUT = 2000;  // Stop learning after 2s of no input
+const uint32_t DEFAULT_LEARNING_TIMEOUT = 2000;  // Default: 2s (adjustable via parameter)
 
 // ============================================================================
 // TENDENCY ANALYSIS (extracted from learned notes)
@@ -734,15 +745,20 @@ void update_learning_state()
         uint32_t current_time = System::GetNow();
         uint32_t time_since_note = current_time - last_note_time;
 
+        // Calculate learning timeout from parameter (0.5s - 10s)
+        // Parameter 0.0 = 500ms, 0.158 ≈ 2000ms (default), 1.0 = 10000ms
+        float timeout_param = parameters_smoothed[PARAM_LEARN_TIMEOUT];
+        uint32_t learning_timeout_ms = 500 + (uint32_t)(timeout_param * 9500.0f);
+
         // Stop learning if:
         // 1. Buffer is full (16 notes), OR
-        // 2. Timeout (2 seconds) AND we have minimum notes (4)
+        // 2. Timeout (parameter-controlled) AND we have minimum notes (4)
         if(note_buffer_count >= MAX_LEARN_NOTES ||
-           (time_since_note > LEARNING_TIMEOUT && note_buffer_count >= MIN_LEARN_NOTES))
+           (time_since_note > learning_timeout_ms && note_buffer_count >= MIN_LEARN_NOTES))
         {
             learning_state = STATE_GENERATING;
             log_debug(DBG_LEARNING_STOP, note_buffer_count,
-                     (time_since_note > LEARNING_TIMEOUT) ? 1 : 0);  // 1=timeout, 0=buffer full
+                     (time_since_note > learning_timeout_ms) ? 1 : 0);  // 1=timeout, 0=buffer full
 
             // Analyze learned notes and extract tendencies
             analyze_learned_notes();
@@ -1000,6 +1016,18 @@ void UpdateControls()
                 add_note_to_buffer(note);
                 note_in_active = true;
                 last_note_in = note;
+
+                // Echo notes during learning if ECHO parameter enabled (> 0.5)
+                if(learning_state == STATE_LEARNING && parameters_smoothed[PARAM_ECHO_NOTES] > 0.5f)
+                {
+                    send_midi_note(note, velocity);
+
+                    // Also trigger gate output for immediate feedback
+                    gate_out_state = true;
+                    gate_out_start_time = System::GetNow();
+                    dsy_gpio_write(&hw.gate_output, 1);
+                    gate_length_ms = 100.0f;  // Short 100ms gate for echo
+                }
             }
             else
             {
@@ -1284,13 +1312,23 @@ int main(void)
         }
         else
         {
-            // Pages 1 & 2: default to middle position
+            // Pages 1, 2, 3: default to middle position
             parameters[i] = 0.5f;
             parameters_smoothed[i] = 0.5f;
             param_pickup_active[i] = false;  // Not active until picked up
             pot_last_value[i] = pot_values[i % PARAMS_PER_PAGE];  // Set to current pot position
         }
     }
+
+    // Special defaults for Page 3 (Utility) parameters
+    // LEARN_TIMEOUT: default to 2 seconds (param value ≈ 0.158)
+    // Formula: timeout_ms = 500 + (param * 9500), so 2000ms requires param = 0.158
+    parameters[PARAM_LEARN_TIMEOUT] = 0.158f;
+    parameters_smoothed[PARAM_LEARN_TIMEOUT] = 0.158f;
+
+    // ECHO_NOTES: default to OFF (0.0)
+    parameters[PARAM_ECHO_NOTES] = 0.0f;
+    parameters_smoothed[PARAM_ECHO_NOTES] = 0.0f;
 
     // Start audio
     hw.StartAudio(AudioCallback);
