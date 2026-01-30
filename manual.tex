@@ -1,0 +1,880 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+
+% Page style
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{GenerativeGenerator Technical Manual}
+\lhead{v1.0}
+\cfoot{\thepage}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    breaklines=true,
+}
+
+\title{\textbf{GenerativeGenerator}\\
+\large Technical Reference Manual\\
+\normalsize Generative Melodic Instrument for Eurorack}
+\author{Jeff Lytle}
+\date{Version 1.0 --- \today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+GenerativeGenerator is a generative melodic instrument for Eurorack that learns short musical gestures (4--16 notes) and continues playing variations indefinitely. Unlike sequencers or arpeggiators, it extracts \textit{tendencies} from input---interval distributions, directional biases, register characteristics---and generates new material through probability-based decisions. This manual provides complete technical specifications, mathematical formulations, and parameter descriptions for all 16 control parameters across 4 pages.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{System Overview}
+
+\subsection{Hardware Platform}
+\begin{itemize}
+    \item \textbf{Platform:} Electrosmith Daisy Patch (STM32H750, ARM Cortex-M7 @ 480MHz)
+    \item \textbf{Flash:} 99,820 bytes / 128 KB (76.16\%)
+    \item \textbf{SRAM:} 52,556 bytes / 512 KB (10.02\%)
+    \item \textbf{Display:} 128×64 OLED
+    \item \textbf{Controls:} 4 potentiometers, 1 rotary encoder with click
+    \item \textbf{I/O:} 2 gate inputs, 1 gate output, MIDI In/Out, 4 audio channels
+\end{itemize}
+
+\subsection{Core Concept}
+The module operates in three states:
+\begin{enumerate}
+    \item \textbf{IDLE:} Awaiting MIDI input
+    \item \textbf{LEARNING:} Capturing notes (4--16 note buffer)
+    \item \textbf{GENERATING:} Creating variations based on learned tendencies
+\end{enumerate}
+
+State transitions occur automatically:
+\begin{itemize}
+    \item IDLE $\rightarrow$ LEARNING: First MIDI note received
+    \item LEARNING $\rightarrow$ GENERATING: Timeout (0.5--10s) or buffer full (16 notes)
+    \item GENERATING $\rightarrow$ LEARNING: New MIDI note received (live phrase injection)
+\end{itemize}
+
+\subsection{Page System}
+Parameters are organized into 4 pages of 4 parameters each (16 total):
+\begin{itemize}
+    \item \textbf{Page 0:} Performance -- Direct Control
+    \item \textbf{Page 1:} Performance -- Macro \& Evolution
+    \item \textbf{Page 2:} Structural -- Shape \& Gravity
+    \item \textbf{Page 3:} Utility -- Learning \& I/O
+\end{itemize}
+
+Encoder rotation cycles through pages with wraparound (0 $\rightarrow$ 1 $\rightarrow$ 2 $\rightarrow$ 3 $\rightarrow$ 0). Encoder click returns to Page 0 or clears the learning buffer when generating.
+
+% ============================================================================
+\section{Parameter Reference}
+
+All parameters have:
+\begin{itemize}
+    \item \textbf{Range:} 0.0--1.0 (internally) or 0--127 (MIDI CC)
+    \item \textbf{Smoothing:} One-pole lowpass filter, coefficient $\alpha = 0.15$
+    \item \textbf{Soft Takeover:} Prevents jumps when changing pages (threshold = 0.05)
+\end{itemize}
+
+\subsection{Smoothing Filter}
+Parameter values are smoothed using exponential filtering:
+\begin{equation}
+p_{\text{smooth}}[n] = \alpha \cdot p_{\text{raw}}[n] + (1 - \alpha) \cdot p_{\text{smooth}}[n-1]
+\end{equation}
+where $\alpha = 0.15$ provides responsive control without jitter.
+
+% ============================================================================
+\section{Page 0: Performance -- Direct Control}
+
+\subsection{Parameter 0: MOTION}
+\textbf{CC 3} | Default: 50\%
+
+\subsubsection{Purpose}
+Biases stepwise motion versus intervallic leaps. Controls the distribution of small vs. large intervals.
+
+\subsubsection{Mathematical Formulation}
+Motion type is selected probabilistically:
+\begin{equation}
+P(\text{motion type}) =
+\begin{cases}
+\text{repeat} & \text{(direct repeat of last note)} \\
+\text{step} & \text{(1--2 semitones)} \\
+\text{leap} & \text{(3--7 semitones)} \\
+\text{octave} & \text{($\pm$1--2 octaves)}
+\end{cases}
+\end{equation}
+
+Probability weights:
+\begin{align}
+w_{\text{step}} &= (1.0 - p_{\text{MOTION}}) \cdot k_{\text{step}} \\
+w_{\text{leap}} &= p_{\text{MOTION}} \cdot k_{\text{leap}} \\
+w_{\text{octave}} &= p_{\text{MOTION}} \cdot k_{\text{octave}}
+\end{align}
+where $k_{\text{step}} = 0.5$, $k_{\text{leap}} = 0.3$, $k_{\text{octave}} = 0.2$.
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Predominantly stepwise motion, smooth melodic contours
+    \item \textbf{50\%:} Balanced mix of steps and leaps
+    \item \textbf{100\%:} Frequent large leaps, angular and disjunct motion
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 1: MEMORY}
+\textbf{CC 9} | Default: 50\%
+
+\subsubsection{Purpose}
+Biases repetition and return to recent material. Controls how often the system revisits notes from the recent history buffer.
+
+\subsubsection{Mathematical Formulation}
+A sliding window of the last 8 generated notes is maintained:
+\begin{equation}
+\text{recent\_notes} = [n_{i-7}, n_{i-6}, \ldots, n_{i-1}]
+\end{equation}
+
+Memory bias probability:
+\begin{equation}
+P(\text{use recent note}) = p_{\text{MEMORY}} \cdot k_{\text{mem}}
+\end{equation}
+where $k_{\text{mem}} = 0.4$.
+
+When triggered, a note is randomly selected from the recent buffer:
+\begin{equation}
+n_{\text{next}} = \text{recent\_notes}[\text{rand}(0, 7)]
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Maximum novelty, avoids repetition, exploratory
+    \item \textbf{50\%:} Occasional returns to familiar material
+    \item \textbf{100\%:} Highly repetitive, cycles through recent notes
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 2: REGISTER}
+\textbf{CC 14} | Default: 50\%
+
+\subsubsection{Purpose}
+Controls octave displacement probability. Determines how often notes jump by $\pm$1 or $\pm$2 octaves.
+
+\subsubsection{Mathematical Formulation}
+After interval selection, octave displacement is applied probabilistically:
+\begin{equation}
+P(\text{octave displacement}) = p_{\text{REGISTER}} \cdot k_{\text{oct}}
+\end{equation}
+where $k_{\text{oct}} = 0.25$.
+
+Displacement amount:
+\begin{equation}
+\Delta_{\text{oct}} =
+\begin{cases}
+\pm 12 & \text{with probability } 0.7 \\
+\pm 24 & \text{with probability } 0.3
+\end{cases}
+\end{equation}
+
+Final note:
+\begin{equation}
+n_{\text{final}} = \text{clamp}(n_{\text{candidate}} + \Delta_{\text{oct}}, 0, 127)
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Stays within learned register ($\pm$1 octave)
+    \item \textbf{50\%:} Occasional octave jumps for variety
+    \item \textbf{100\%:} Frequent octave displacement, wide tessitura
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 3: DIRECTION}
+\textbf{CC 15} | Default: 50\%
+
+\subsubsection{Purpose}
+Biases ascending versus descending motion. Blends learned directional tendency with user preference.
+
+\subsubsection{Mathematical Formulation}
+Learned directional bias:
+\begin{equation}
+\theta_{\text{learned}} = \frac{N_{\text{asc}} - N_{\text{desc}}}{N_{\text{asc}} + N_{\text{desc}}}
+\end{equation}
+where $N_{\text{asc}}$ and $N_{\text{desc}}$ are counts of ascending and descending intervals in the learned buffer.
+
+Parameter-controlled bias:
+\begin{equation}
+\theta_{\text{param}} = 2 \cdot p_{\text{DIRECTION}} - 1 \quad \in [-1, 1]
+\end{equation}
+
+Blended bias:
+\begin{equation}
+\theta_{\text{final}} = \frac{\theta_{\text{learned}} + \theta_{\text{param}}}{2}
+\end{equation}
+
+Direction selection:
+\begin{align}
+P(\text{ascending}) &= \frac{1 + \theta_{\text{final}}}{2} \\
+P(\text{descending}) &= \frac{1 - \theta_{\text{final}}}{2}
+\end{align}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Strong descending bias, phrases trend downward
+    \item \textbf{50\%:} Follows learned tendency (neutral parameter)
+    \item \textbf{100\%:} Strong ascending bias, phrases trend upward
+\end{itemize}
+
+% ============================================================================
+\section{Page 1: Performance -- Macro \& Evolution}
+
+\subsection{Parameter 4: PHRASE}
+\textbf{CC 20} | Default: 50\%
+
+\subsubsection{Purpose}
+Controls expected phrase length through soft targeting. Influences melodic direction changes and phrase boundaries.
+
+\subsubsection{Mathematical Formulation}
+Target phrase length:
+\begin{equation}
+L_{\text{target}} = 2 + \lfloor p_{\text{PHRASE}} \cdot 14 \rfloor \quad \in [2, 16]
+\end{equation}
+
+Phrase position tracking:
+\begin{equation}
+\rho = \frac{L_{\text{current}}}{L_{\text{target}}} \quad \in [0, \infty)
+\end{equation}
+
+Boundary probability:
+\begin{equation}
+P(\text{boundary}) =
+\begin{cases}
+0 & \text{if } \rho < 0.5 \\
+\frac{\rho - 0.5}{0.5} \cdot k_{\text{phrase}} & \text{if } 0.5 \leq \rho < 1.0 \\
+k_{\text{phrase}} + (\rho - 1.0) \cdot k_{\text{accel}} & \text{if } \rho \geq 1.0
+\end{cases}
+\end{equation}
+where $k_{\text{phrase}} = 0.3$ and $k_{\text{accel}} = 0.2$.
+
+At phrase boundaries, direction memory is reset, encouraging melodic contour changes.
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Short phrases (2--4 notes), frequent direction changes
+    \item \textbf{50\%:} Medium phrases (8--10 notes), natural phrasing
+    \item \textbf{100\%:} Long phrases (14--16 notes), extended melodic arcs
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 5: ENERGY}
+\textbf{CC 21} | Default: 50\%
+
+\subsubsection{Purpose}
+Macro parameter that scales multiple systems simultaneously: interval size, octave displacement probability, and phrase looseness.
+
+\subsubsection{Mathematical Formulation}
+Energy scaling is applied to several subsystems:
+
+\textbf{Interval size scaling:}
+\begin{equation}
+I_{\text{scaled}} = I_{\text{base}} \cdot (0.5 + p_{\text{ENERGY}})
+\end{equation}
+
+\textbf{Octave displacement boost:}
+\begin{equation}
+P_{\text{oct}}' = P_{\text{oct}} \cdot (1.0 + p_{\text{ENERGY}})
+\end{equation}
+
+\textbf{Phrase boundary randomization:}
+\begin{equation}
+L_{\text{target}}' = L_{\text{target}} \cdot (0.8 + 0.4 \cdot \text{rand}() \cdot p_{\text{ENERGY}})
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Calm, small intervals, predictable phrasing, subdued
+    \item \textbf{50\%:} Balanced intensity, moderate dynamics
+    \item \textbf{100\%:} Intense, large intervals, unpredictable, volatile
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 6: STABILITY}
+\textbf{CC 22} | Default: 50\%
+
+\subsubsection{Purpose}
+Biases stable versus unstable scale degrees. At high values, favors notes from the learned set; at low values, introduces chromatic passing tones.
+
+\subsubsection{Mathematical Formulation}
+Stability probability:
+\begin{equation}
+P(\text{use learned note}) = p_{\text{STABILITY}} \cdot k_{\text{stab}}
+\end{equation}
+where $k_{\text{stab}} = 0.7$.
+
+When unstable notes are chosen:
+\begin{equation}
+n_{\text{chromatic}} = n_{\text{base}} + \Delta_{\text{semi}}, \quad \Delta_{\text{semi}} \in \{-1, +1\}
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Chromatic, dissonant, exploratory, ``outside''
+    \item \textbf{50\%:} Mix of stable and unstable notes
+    \item \textbf{100\%:} Diatonic/pentatonic, consonant, stays within learned scale
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 7: FORGETFULNESS}
+\textbf{CC 23} | Default: 50\%
+
+\subsubsection{Purpose}
+Controls decay rate of learned tendencies. High values cause the system to gradually drift away from the learned interval distribution toward a uniform distribution.
+
+\subsubsection{Mathematical Formulation}
+Interval weight decay per note:
+\begin{equation}
+w_i[n] = w_i[n-1] \cdot (1 - p_{\text{FORGET}} \cdot k_{\text{decay}})
+\end{equation}
+where $k_{\text{decay}} = 0.01$ and $w_i$ are the interval distribution weights.
+
+Uniform distribution injection:
+\begin{equation}
+w_i[n] \leftarrow w_i[n] + p_{\text{FORGET}} \cdot k_{\text{uniform}} \cdot \frac{1}{13}
+\end{equation}
+where $k_{\text{uniform}} = 0.02$.
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Strong adherence to learned style, stable over time
+    \item \textbf{50\%:} Gradual evolution, slight drift
+    \item \textbf{100\%:} Rapid forgetting, becomes increasingly random/uniform
+\end{itemize}
+
+% ============================================================================
+\section{Page 2: Structural -- Shape \& Gravity}
+
+\subsection{Parameter 8: LEAP SHAPE}
+\textbf{CC 24} | Default: 50\%
+
+\subsubsection{Purpose}
+Controls exponential decay of interval size probability. Shapes the distribution from flat (all intervals equally likely) to steep (strong preference for small intervals).
+
+\subsubsection{Mathematical Formulation}
+Interval probability with exponential decay:
+\begin{equation}
+P(I = i) \propto w_i \cdot \exp(-\lambda \cdot i)
+\end{equation}
+where $i \in [0, 12]$ is interval size in semitones and:
+\begin{equation}
+\lambda = p_{\text{LEAP SHAPE}} \cdot k_{\lambda}, \quad k_{\lambda} = 0.15
+\end{equation}
+
+Normalization:
+\begin{equation}
+P(I = i) = \frac{w_i \cdot \exp(-\lambda \cdot i)}{\sum_{j=0}^{12} w_j \cdot \exp(-\lambda \cdot j)}
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Flat distribution, large leaps as common as steps
+    \item \textbf{50\%:} Moderate decay, natural intervallic variety
+    \item \textbf{100\%:} Steep decay, strong preference for stepwise motion
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 9: DIRECTION MEMORY}
+\textbf{CC 25} | Default: 50\%
+
+\subsubsection{Purpose}
+Controls persistence of melodic direction. High values produce long ascending or descending runs; low values produce frequent zigzagging.
+
+\subsubsection{Mathematical Formulation}
+Direction is chosen probabilistically, with memory of the previous direction:
+\begin{equation}
+P(\text{same direction}) = p_{\text{DIR MEM}} \cdot k_{\text{dir}}
+\end{equation}
+where $k_{\text{dir}} = 0.8$.
+
+Direction state:
+\begin{equation}
+d[n] =
+\begin{cases}
+d[n-1] & \text{with probability } P(\text{same direction}) \\
+-d[n-1] & \text{with probability } 1 - P(\text{same direction})
+\end{cases}
+\end{equation}
+where $d \in \{-1, +1\}$ represents descending or ascending.
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Frequent direction changes, zigzag melodic contour
+    \item \textbf{50\%:} Moderate persistence, natural phrase shapes
+    \item \textbf{100\%:} Long runs, extended ascending/descending sequences
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 10: HOME REGISTER}
+\textbf{CC 26} | Default: 50\%
+
+\subsubsection{Purpose}
+Sets the center of register gravity. Notes are pulled toward this center through a soft Gaussian constraint.
+
+\subsubsection{Mathematical Formulation}
+Register center mapping:
+\begin{equation}
+r_{\text{center}} = 36 + \lfloor p_{\text{HOME REG}} \cdot 55 \rfloor \quad \in [36, 91] \text{ (C2 to G6)}
+\end{equation}
+
+Gaussian gravity function:
+\begin{equation}
+G(n) = \exp\left(-\frac{(n - r_{\text{center}})^2}{2\sigma^2}\right)
+\end{equation}
+where $\sigma$ is controlled by RANGE WIDTH (see below).
+
+Probability modification:
+\begin{equation}
+P'(n) = P(n) \cdot (1 + k_g \cdot G(n))
+\end{equation}
+where $k_g = 0.5$ is the gravity strength.
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Low register center (bass), gravitates toward C2
+    \item \textbf{50\%:} Mid register (around E4), neutral tessitura
+    \item \textbf{100\%:} High register center (treble), gravitates toward G6
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 11: RANGE WIDTH}
+\textbf{CC 27} | Default: 50\%
+
+\subsubsection{Purpose}
+Sets variance of register gravity. Controls how tightly notes cluster around the HOME REGISTER center.
+
+\subsubsection{Mathematical Formulation}
+Variance (standard deviation):
+\begin{equation}
+\sigma = 12 + p_{\text{RANGE}} \cdot 36 \quad \in [12, 48] \text{ semitones}
+\end{equation}
+
+This modulates the Gaussian gravity from Parameter 10:
+\begin{equation}
+G(n) = \exp\left(-\frac{(n - r_{\text{center}})^2}{2\sigma^2}\right)
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\%:} Tight clustering, narrow pitch range, strong gravity
+    \item \textbf{50\%:} Moderate spread, natural register variance
+    \item \textbf{100\%:} Wide exploration, weak gravity, uses full keyboard
+\end{itemize}
+
+% ============================================================================
+\section{Page 3: Utility -- Learning \& I/O}
+
+\subsection{Parameter 12: LRN TIME (Learning Timeout)}
+\textbf{CC 28} | Default: 2.0s (16\%)
+
+\subsubsection{Purpose}
+Controls how long to wait after the last MIDI note before automatically transitioning from LEARNING to GENERATING state.
+
+\subsubsection{Mathematical Formulation}
+Timeout in milliseconds:
+\begin{equation}
+T_{\text{timeout}} = 500 + \lfloor p_{\text{LRN TIME}} \cdot 9500 \rfloor \quad \in [500, 10000] \text{ ms}
+\end{equation}
+
+Default value ($T = 2000$ ms):
+\begin{equation}
+p_{\text{default}} = \frac{2000 - 500}{9500} = 0.158 \approx 16\%
+\end{equation}
+
+State transition condition:
+\begin{equation}
+\text{if } (t_{\text{current}} - t_{\text{last note}} > T_{\text{timeout}}) \land (N_{\text{notes}} \geq 4) \Rightarrow \text{STATE\_GENERATING}
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{0\% (0.5s):} Very fast, for quick patterns and rhythmic input
+    \item \textbf{16\% (2.0s):} Default, natural for keyboard playing
+    \item \textbf{100\% (10s):} Slow, for contemplative/sparse input
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameter 13: ECHO (MIDI Note Echo)}
+\textbf{CC 29} | Default: OFF (0\%)
+
+\subsubsection{Purpose}
+When enabled, notes received during LEARNING are immediately echoed to MIDI output and gate output, providing auditory feedback.
+
+\subsubsection{Mathematical Formulation}
+Echo trigger condition:
+\begin{equation}
+\text{if } (\text{state} = \text{LEARNING}) \land (p_{\text{ECHO}} > 0.5) \Rightarrow \text{send MIDI}
+\end{equation}
+
+Gate pulse duration:
+\begin{equation}
+T_{\text{gate}} = 100 \text{ ms (fixed)}
+\end{equation}
+
+\subsubsection{Musical Effect}
+\begin{itemize}
+    \item \textbf{OFF ($< 50\%$):} Silent learning, no output during capture
+    \item \textbf{ON ($\geq 50\%$):} Hear notes as played, immediate feedback
+\end{itemize}
+
+\subsubsection{Use Cases}
+\begin{itemize}
+    \item \textbf{Echo ON:} Manual keyboard input, practice mode, live performance
+    \item \textbf{Echo OFF:} Pre-recorded sequences, scripted input, silent capture
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Parameters 14--15: Reserved}
+\textbf{CC 30--31}
+
+Currently inactive. Reserved for future features including:
+\begin{itemize}
+    \item Scala .scl file selection from SD card
+    \item Microtonal output mode (MTS/MPE/direct CV)
+    \item Scale quantization settings
+    \item CV calibration offsets
+\end{itemize}
+
+% ============================================================================
+\section{MIDI Control Change Mapping}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}clccc@{}}
+\toprule
+\textbf{CC\#} & \textbf{Parameter} & \textbf{Page} & \textbf{Pot} & \textbf{Default} \\ \midrule
+3  & MOTION           & 0 & 1 & 50\% \\
+9  & MEMORY           & 0 & 2 & 50\% \\
+14 & REGISTER         & 0 & 3 & 50\% \\
+15 & DIRECTION        & 0 & 4 & 50\% \\ \midrule
+20 & PHRASE           & 1 & 1 & 50\% \\
+21 & ENERGY           & 1 & 2 & 50\% \\
+22 & STABILITY        & 1 & 3 & 50\% \\
+23 & FORGETFULNESS    & 1 & 4 & 50\% \\ \midrule
+24 & LEAP SHAPE       & 2 & 1 & 50\% \\
+25 & DIRECTION MEMORY & 2 & 2 & 50\% \\
+26 & HOME REGISTER    & 2 & 3 & 50\% \\
+27 & RANGE WIDTH      & 2 & 4 & 50\% \\ \midrule
+28 & LRN TIME         & 3 & 1 & 16\% (2s) \\
+29 & ECHO             & 3 & 2 & 0\% (OFF) \\
+30 & Reserved         & 3 & 3 & 50\% \\
+31 & Reserved         & 3 & 4 & 50\% \\ \bottomrule
+\end{tabular}
+\caption{Complete MIDI CC mapping for all 16 parameters}
+\end{table}
+
+\subsection{MIDI CC Value Mapping}
+All parameters use linear mapping:
+\begin{equation}
+p = \frac{\text{CC value}}{127} \quad \in [0, 1]
+\end{equation}
+
+Exception: LRN TIME has non-uniform perceptual mapping (see Parameter 12).
+
+% ============================================================================
+\section{Generative Algorithm}
+
+\subsection{Note Generation Pipeline}
+Each trigger on Gate Input 1 executes the following pipeline:
+
+\begin{enumerate}
+    \item \textbf{Motion Decision:} Select motion type (repeat/step/leap/octave) based on MOTION parameter
+    \item \textbf{Interval Selection:} Choose interval size from learned distribution, weighted by LEAP SHAPE
+    \item \textbf{Direction Selection:} Choose ascending/descending based on DIRECTION and DIR MEM
+    \item \textbf{Candidate Note:} Compute $n_{\text{candidate}} = n_{\text{prev}} + d \cdot I$
+    \item \textbf{Octave Displacement:} Apply with probability from REGISTER parameter
+    \item \textbf{Register Gravity:} Bias toward HOME REGISTER with RANGE WIDTH variance
+    \item \textbf{Memory Bias:} Optionally replace with recent note based on MEMORY
+    \item \textbf{Stability:} Adjust to learned scale or chromatic based on STABILITY
+    \item \textbf{Clamping:} Ensure $n_{\text{final}} \in [0, 127]$
+    \item \textbf{Output:} Send MIDI note, trigger gate output
+\end{enumerate}
+
+\subsection{Phrase Tracking}
+Phrase position is tracked continuously:
+\begin{equation}
+\rho[n] = \frac{L_{\text{current}}}{L_{\text{target}}(p_{\text{PHRASE}}, p_{\text{ENERGY}})}
+\end{equation}
+
+At phrase boundaries ($\rho \geq 1$):
+\begin{itemize}
+    \item Direction memory is reset
+    \item Phrase counter resets to 0
+    \item New target length is computed
+\end{itemize}
+
+\subsection{Learned Tendency Extraction}
+Upon entering GENERATING state, the following are computed from the note buffer:
+
+\textbf{Interval histogram:}
+\begin{equation}
+H[i] = \text{count}(|n_{j+1} - n_j| = i), \quad i \in [0, 12]
+\end{equation}
+
+\textbf{Directional statistics:}
+\begin{align}
+N_{\text{asc}} &= \text{count}(n_{j+1} > n_j) \\
+N_{\text{desc}} &= \text{count}(n_{j+1} < n_j) \\
+N_{\text{repeat}} &= \text{count}(n_{j+1} = n_j)
+\end{align}
+
+\textbf{Register statistics:}
+\begin{align}
+r_{\text{center}} &= \frac{1}{N}\sum_{j=1}^{N} n_j \\
+r_{\text{min}} &= \min_j n_j \\
+r_{\text{max}} &= \max_j n_j \\
+r_{\text{range}} &= r_{\text{max}} - r_{\text{min}}
+\end{align}
+
+\textbf{Most common intervals:}
+\begin{align}
+I_1 &= \arg\max_i H[i] \\
+I_2 &= \arg\max_{i \neq I_1} H[i]
+\end{align}
+
+% ============================================================================
+\section{Input/Output Specifications}
+
+\subsection{Gate Inputs}
+\begin{itemize}
+    \item \textbf{Gate Input 1:} Note trigger (generates new note during GENERATING state)
+    \item \textbf{Gate Input 2:} Clock/BPM detection (measures tempo, updates display)
+\end{itemize}
+
+Both inputs use rising edge detection. Minimum pulse width: 1ms.
+
+\subsection{Gate Output}
+\begin{itemize}
+    \item \textbf{Trigger:} Synchronized with generated notes
+    \item \textbf{Duration:} 50\% of clock interval (from Gate Input 2)
+    \item \textbf{Minimum:} 20ms
+    \item \textbf{Maximum:} 500ms
+    \item \textbf{Default (no clock):} 50ms
+\end{itemize}
+
+Gate length formula:
+\begin{equation}
+T_{\text{gate}} = \text{clamp}(0.5 \cdot T_{\text{clock}}, 20, 500) \text{ ms}
+\end{equation}
+
+\subsection{MIDI}
+\begin{itemize}
+    \item \textbf{Channel:} 1 (fixed)
+    \item \textbf{Note Range:} 0--127 (C-1 to G9)
+    \item \textbf{Velocity:} 100 (fixed)
+    \item \textbf{Input:} Note On/Off, Control Change (CC)
+    \item \textbf{Output:} Note On/Off
+\end{itemize}
+
+\subsection{CV Output}
+\begin{itemize}
+    \item \textbf{Resolution:} 12-bit (4096 steps)
+    \item \textbf{Range:} 0--5V
+    \item \textbf{Standard:} 1V/octave
+    \item \textbf{Calibration:} Software-defined (future: adjustable via Page 3)
+\end{itemize}
+
+CV voltage formula:
+\begin{equation}
+V_{\text{CV}} = \frac{n - 60}{12} \text{ V}
+\end{equation}
+where $n = 60$ (C4) corresponds to 0V.
+
+% ============================================================================
+\section{Display Interface}
+
+\subsection{Main Display Layout}
+\begin{verbatim}
+PAGE 1                    ●○○○  ○
+─────────────────────────────────
+MOTION      [███████     ]
+MEMORY      [████▯       ]  ← Pickup indicator
+REGISTER    [█████████   ]
+DIRECTION   [███         ]
+L:4                120  CLK
+\end{verbatim}
+
+\subsubsection{Elements}
+\begin{itemize}
+    \item \textbf{Top left:} Page indicator (●○○○)
+    \item \textbf{Top right:} Clock pulse indicator (○ flashes)
+    \item \textbf{Parameter bars:} Filled portion shows value
+    \item \textbf{Hollow rectangle:} Current pot position (during soft takeover)
+    \item \textbf{Dashed border:} Waiting for pickup (pot must catch stored value)
+    \item \textbf{Bottom left:} Learning state (L:X, G:X, or -)
+    \item \textbf{Bottom center:} BPM from Gate Input 2
+    \item \textbf{Bottom right:} Clock indicator (filled box when gate high)
+    \item \textbf{Right edge:} Vertical pitch bar (current note position)
+\end{itemize}
+
+\subsection{Learning State Indicators}
+\begin{itemize}
+    \item \textbf{``-'':} IDLE state, awaiting MIDI input
+    \item \textbf{``L:X'':} LEARNING state, X notes captured (0--16)
+    \item \textbf{``G:X'':} GENERATING state, using X learned notes
+\end{itemize}
+
+\subsection{LED Behavior}
+\begin{itemize}
+    \item \textbf{IDLE:} Shows gate input state (mirrors Gate Input 2)
+    \item \textbf{LEARNING:} Blinks rapidly (10 Hz)
+    \item \textbf{GENERATING:} Pulses with clock (mirrors clock pulse indicator)
+\end{itemize}
+
+% ============================================================================
+\section{Live Performance Features}
+
+\subsection{Soft Takeover (Parameter Pickup)}
+When switching pages, parameters do not immediately respond to pot movements. The pot must first ``catch up'' to the stored parameter value.
+
+\textbf{Pickup threshold:}
+\begin{equation}
+|\text{pot value} - \text{stored value}| < 0.05
+\end{equation}
+
+\textbf{Or crossing condition:}
+\begin{equation}
+\text{sign}(\text{pot}[n] - \text{stored}) \neq \text{sign}(\text{pot}[n-1] - \text{stored})
+\end{equation}
+
+Visual feedback: dashed border around parameter bar until pickup activated.
+
+\subsection{Live Phrase Injection}
+Sending MIDI notes during GENERATING state automatically transitions back to LEARNING, allowing seamless pattern changes without manual reset.
+
+\textbf{State transition:}
+\begin{equation}
+\text{STATE\_GENERATING} \xrightarrow{\text{MIDI note}} \text{STATE\_LEARNING (buffer cleared)}
+\end{equation}
+
+This enables:
+\begin{itemize}
+    \item Call-and-response improvisation
+    \item Pattern evolution during performance
+    \item Smooth musical transitions
+\end{itemize}
+
+% ============================================================================
+\section{Technical Specifications}
+
+\subsection{Memory Usage}
+\begin{itemize}
+    \item \textbf{Flash:} 99,820 / 131,072 bytes (76.16\%)
+    \item \textbf{SRAM:} 52,556 / 524,288 bytes (10.02\%)
+    \item \textbf{Learning buffer:} 16 bytes (16 notes × 1 byte)
+    \item \textbf{Recent notes buffer:} 8 bytes (8 notes × 1 byte)
+    \item \textbf{Tendency struct:} \~{}88 bytes
+    \item \textbf{Parameters:} 128 bytes (16 params × 2 floats × 4 bytes)
+    \item \textbf{Debug log:} 384 bytes (64 entries × 6 bytes)
+\end{itemize}
+
+\subsection{Processing Performance}
+\begin{itemize}
+    \item \textbf{Sample rate:} 48 kHz
+    \item \textbf{Block size:} 48 samples
+    \item \textbf{Audio callback latency:} \~{}1 ms
+    \item \textbf{Display refresh rate:} 30 Hz (33 ms frame time)
+    \item \textbf{Control update rate:} 30 Hz
+\end{itemize}
+
+\subsection{Random Number Generation}
+Uses XORshift32 algorithm for all probabilistic decisions:
+\begin{align}
+x &\leftarrow x \oplus (x \ll 13) \\
+x &\leftarrow x \oplus (x \gg 17) \\
+x &\leftarrow x \oplus (x \ll 5)
+\end{align}
+
+Output range: $[0, 2^{32}-1]$, uniform distribution.
+
+% ============================================================================
+\section{Future Extensions}
+
+\subsection{Microtonal Support (Planned)}
+\begin{itemize}
+    \item Load Scala (.scl) files from SD card
+    \item Settings menu (hold encoder 1.5s)
+    \item Multiple output modes:
+    \begin{itemize}
+        \item MIDI Tuning Standard (MTS) via SysEx
+        \item MPE-style pitch bend per note
+        \item Direct microtuned CV output
+    \end{itemize}
+    \item Parameters 14--15 reserved for scale selection and mode
+\end{itemize}
+
+\subsection{Potential Enhancements}
+\begin{itemize}
+    \item Multiple pattern banks (store/recall learned patterns)
+    \item Crossfade between patterns
+    \item CV control of parameters (currently pot-only)
+    \item MIDI learn mode for custom CC assignments
+    \item Pattern morphing (blend two learned patterns)
+\end{itemize}
+
+% ============================================================================
+\section{Appendix: Quick Reference}
+
+\subsection{Default Values Summary}
+\begin{itemize}
+    \item Pages 0--2: All parameters default to 50\%
+    \item Page 3: LRN TIME = 16\% (2s), ECHO = 0\% (OFF)
+\end{itemize}
+
+\subsection{Encoder Commands}
+\begin{itemize}
+    \item \textbf{Turn CW/CCW:} Navigate pages
+    \item \textbf{Click (IDLE/LEARNING):} Return to Page 0
+    \item \textbf{Click (GENERATING):} Clear buffer, return to IDLE
+\end{itemize}
+
+\subsection{State Machine Summary}
+\begin{align*}
+\text{IDLE} &\xrightarrow{\text{MIDI note}} \text{LEARNING} \\
+\text{LEARNING} &\xrightarrow{\text{timeout or buffer full}} \text{GENERATING} \\
+\text{GENERATING} &\xrightarrow{\text{MIDI note}} \text{LEARNING} \\
+\text{GENERATING} &\xrightarrow{\text{encoder click}} \text{IDLE}
+\end{align*}
+
+% ============================================================================
+\section{Contact \& Resources}
+
+\begin{itemize}
+    \item \textbf{GitHub:} \url{https://github.com/jjlytle/GenerativeGenerator}
+    \item \textbf{Author:} Jeff Lytle
+    \item \textbf{Platform:} Electrosmith Daisy Patch
+    \item \textbf{Documentation:} \url{https://daisy.audio/}
+\end{itemize}
+
+% ============================================================================
+
+\end{document}
