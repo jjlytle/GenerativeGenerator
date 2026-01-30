@@ -149,19 +149,21 @@ No parameter should produce silence, lock-ups, or unusable states.
 - OLED Display (128x64)
 
 ### Inputs
-- Clock / Gate In
-- CV Pitch In
-- MIDI In
-- Encoder (page navigation)
+- Gate Input 1: Note trigger (generates note during GENERATING state)
+- Gate Input 2: Clock/BPM detection (measures tempo continuously)
+- CV Pitch In (future expansion)
+- MIDI In (for learning notes)
+- Encoder (page navigation + click to reset learning)
 - 4 Potentiometers (mapped to 4 parameters per page)
 
 ### Outputs
-- CV Pitch Out (quantized)
-- Gate Out
-- MIDI Out (mirrors CV output)
+- CV Pitch Out (12-bit, 0-5V, V/OCT calibrated)
+- Gate Out (synchronized with generated notes, 50% duty cycle)
+- MIDI Out (mirrors note generation)
 
 Optional future:
 - Mod CV (energy / entropy / phrase state)
+- CV Pitch In for hybrid MIDI+CV learning
 
 ---
 
@@ -216,25 +218,25 @@ Pages are simple and fast to navigate.
 ## TODO LIST
 
 ### DESIGN
-- [ ] Finalize module name
-- [ ] Lock final parameter names (may merge or kill 1–2)
-- [ ] Decide OLED resolution and frame rate
-- [ ] Finalize scale handling strategy
-- [ ] Define reset behavior (power-on + manual)
+- [x] Finalize module name (GenerativeGenerator)
+- [x] Lock final parameter names (12 parameters across 3 pages)
+- [x] Decide OLED resolution and frame rate (128x64, 30Hz)
+- [x] Finalize scale handling strategy (chromatic, no forced quantization)
+- [x] Define reset behavior (encoder click clears learning buffer)
 
 ### DSP / LOGIC
-- [ ] Implement learning buffer and extraction
-- [ ] Implement interval distribution model
-- [ ] Implement register gravity
-- [ ] Implement phrase-length bias
-- [ ] Implement memory decay
-- [ ] Implement energy macro scaling
+- [x] Implement learning buffer and extraction (4-16 notes)
+- [x] Implement interval distribution model (weighted histogram)
+- [x] Implement register gravity (soft Gaussian)
+- [x] Implement phrase-length bias (soft targeting)
+- [x] Implement memory decay (recent notes buffer)
+- [x] Implement energy macro scaling (scales interval/octave/phrase)
 
 ### INTERFACE
-- [ ] Encoder smoothing and hysteresis
-- [ ] Shift behavior and visual feedback
-- [ ] OLED animation mapping
-- [ ] Live parameter focus feedback
+- [x] Encoder smoothing and hysteresis (page navigation)
+- [x] Soft takeover visual feedback (dashed borders, hollow rectangles)
+- [x] OLED animation mapping (pitch bars, motion trails)
+- [x] Live parameter focus feedback (per-page parameter display)
 
 ### TESTING
 - [ ] Musical stress test (extreme knob settings)

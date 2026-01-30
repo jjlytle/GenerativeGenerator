@@ -10,16 +10,18 @@ This file provides guidance to Claude Code when working on the GenerativeGenerat
 - 4 Potentiometers
 - 1 Encoder (navigation + click)
 - OLED Display (128x64)
-- 2 Gate Inputs
-- 1 Gate Output
+- 2 Gate Inputs:
+  - Gate Input 1: Note trigger (generates note during GENERATING state)
+  - Gate Input 2: Clock/BPM detection (measures tempo continuously)
+- 1 Gate Output (synchronized with note generation)
 - 4 Audio I/O
 - MIDI In/Out
 
 **Repository:** https://github.com/jjlytle/GenerativeGenerator
 
-## Current Status (9 of 21 Tasks Complete - 43%)
+## Current Status (18 of 21 Tasks Complete - 86%)
 
-### ✅ Completed Tasks (Tasks 1-9)
+### ✅ Completed Tasks (Tasks 1-18)
 
 1. **Basic Hardware Initialization** - All peripherals verified working
 2. **3-Page Parameter System** - Encoder navigation with visual feedback
@@ -30,22 +32,23 @@ This file provides guidance to Claude Code when working on the GenerativeGenerat
 7. **Soft Takeover (Parameter Pickup)** - Prevents jumps when changing pages
 8. **Note Learning Buffer** - Captures 4-16 MIDI notes with auto-timeout
 9. **Interval Distribution Analysis** - Extracts tendencies from learned notes
+10. **Motion Decision System** - Probability-based repeat/step/leap/octave selection
+11. **Register Gravity & Octave Displacement** - Soft Gaussian pull toward center pitch
+12. **Memory/Repetition Bias** - Weighted return to recent notes
+13. **Phrase Length Soft Targeting** - Probabilistic phrase boundary detection
+14. **Energy Macro Parameter** - Scales interval size, octave motion, phrase looseness
+15. **CV Pitch Output** - 12-bit CV generation with V/OCT calibration
+16. **Gate Output** - Synchronized with clock, 50% duty cycle
+17. **Visual Pitch Display** - Vertical bar showing current note on OLED
+18. **OLED Animation** - Motion trails, energy indicators, memory feedback
 
-### 🚧 Next Up (Task 10)
+### 🚧 Next Up (Task 19-21)
 
-**Motion Decision System** - Probability-based note generation using learned tendencies
+**Testing Phase** - Verify system behavior under various conditions
 
-### 📋 Remaining Tasks (11-21)
+### 📋 Remaining Tasks (19-21)
 
-11. Register gravity and octave displacement
-12. Memory/repetition bias system
-13. Phrase length soft targeting
-14. Energy macro parameter scaling
-15. CV pitch output with quantization
-16. Gate output synchronized with clock
-17. Visual pitch display (vertical position)
-18. OLED animation for motion/energy/memory
-19. Test basic note generation
+19. Test basic note generation with single parameter
 20. Test full 12-parameter interaction
 21. Musical stress test with extreme settings
 
@@ -108,11 +111,12 @@ git checkout main  # Return to latest
 ```
 
 ### Current Build Stats
-- **FLASH**: 95,956 bytes / 128 KB (73.21%)
-- **SRAM**: 52,436 bytes / 512 KB (10.00%)
+- **FLASH**: 99,460 bytes / 128 KB (75.88%)
+- **SRAM**: 52,484 bytes / 512 KB (10.01%)
 - **Debug Log**: 384 bytes (64 entries × 6 bytes)
 - **Learning Buffer**: 16 bytes (16 notes × 1 byte)
 - **Tendencies**: ~88 bytes
+- **Generation State**: Recent notes buffer (8 notes × 1 byte)
 
 ## Code Architecture
 
@@ -148,6 +152,17 @@ git checkout main  # Return to latest
   - `ascending_count / descending_count / repeat_count` - Direction stats
   - `register_center / min / max / range` - Pitch range analysis
   - `most_common_interval / second_common_interval` - Dominant intervals
+
+**Generative System:**
+- `generate_next_note()` - Main generation function triggered by Gate Input 1
+- Motion decision: repeat/step/leap/octave (weighted by MOTION parameter)
+- Interval selection: weighted by learned interval distribution
+- Direction bias: blends learned tendencies with DIRECTION parameter
+- Register gravity: soft Gaussian pull toward center (REGISTER parameter)
+- Memory bias: weighted return to recent 8 notes (MEMORY parameter)
+- Phrase tracking: soft boundary detection (PHRASE parameter)
+- Energy scaling: macro control over interval size and motion (ENERGY parameter)
+- Octave displacement: ±1-2 octave jumps based on probability
 
 **Debug System:**
 - `debug_log[64]` - Circular buffer of events (inspectable via debugger)
@@ -409,17 +424,22 @@ If the answer is no, reconsider the change.
 **What works:**
 - Complete UI with 3 pages, 4 parameters per page, soft takeover
 - MIDI note learning (4-16 notes) with visual feedback
-- Interval distribution analysis extracted from learned notes
+- Full generative system with probability-based note generation
+- 12-parameter control over motion, memory, register, direction, phrase, energy
+- Gate Input 1: Note triggering (during GENERATING state)
+- Gate Input 2: BPM/clock detection (continuous)
+- Gate Output: Synchronized with generated notes
+- Visual pitch display on OLED
 - Debugging infrastructure with ST-Link and Python test scripts
 
-**What's next (Task 10):**
-- Build motion decision system using learned tendencies
-- Generate new notes based on probability distributions
-- Implement repeat/step/leap/octave motion types
-- Use parameters to bias note generation
+**What's next (Tasks 19-21):**
+- Test basic note generation with single parameter variations
+- Test full 12-parameter interaction and musical expressiveness
+- Musical stress test with extreme parameter settings
+- Verify system stability during long performances
 
-**Key data ready for use:**
-- `tendencies.interval_counts[]` - Weighted interval selection
-- `tendencies.ascending_count / descending_count` - Direction bias
-- `tendencies.register_center / range` - Pitch constraints
-- `parameters_smoothed[]` - User control inputs (0.0-1.0)
+**Known behavior:**
+- Music generation sounds "amazing" (user feedback)
+- All core generative features implemented and functional
+- Gate inputs properly separated (Gate 1 = trigger, Gate 2 = BPM)
+- Flash usage: 75.88% (24KB headroom remaining)
