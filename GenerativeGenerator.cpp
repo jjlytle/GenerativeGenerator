@@ -55,6 +55,24 @@ const char* page_names[NUM_PAGES][PARAMS_PER_PAGE] = {
     {"LEAP SHP", "DIR MEM", "HOME REG", "RANGE"}
 };
 
+// MIDI CC mapping (CC number to parameter index)
+// Using undefined CCs to avoid conflicts with standard MIDI controllers
+const uint8_t MIDI_CC_COUNT = 12;
+const uint8_t midi_cc_numbers[MIDI_CC_COUNT] = {
+    3,  // MOTION (Page 0, Param 0)
+    9,  // MEMORY (Page 0, Param 1)
+    14, // REGISTER (Page 0, Param 2)
+    15, // DIRECTION (Page 0, Param 3)
+    20, // PHRASE (Page 1, Param 0)
+    21, // ENERGY (Page 1, Param 1)
+    22, // STABILITY (Page 1, Param 2)
+    23, // FORGETFULNESS (Page 1, Param 3)
+    24, // LEAP SHAPE (Page 2, Param 0)
+    25, // DIRECTION MEMORY (Page 2, Param 1)
+    26, // HOME REGISTER (Page 2, Param 2)
+    27  // RANGE WIDTH (Page 2, Param 3)
+};
+
 // Parameter storage (all 12 parameters, 0.0 to 1.0)
 float parameters[TOTAL_PARAMS];
 float parameters_smoothed[TOTAL_PARAMS];  // Smoothed versions for display/use
@@ -990,6 +1008,32 @@ void UpdateControls()
         else if(midi_event.type == NoteOff)
         {
             note_in_active = false;
+        }
+        else if(midi_event.type == ControlChange)
+        {
+            // Handle MIDI CC for parameter control
+            uint8_t cc_number = midi_event.data[0];
+            uint8_t cc_value = midi_event.data[1];  // 0-127
+
+            // Check if this CC number matches one of our defined parameters
+            for(int i = 0; i < MIDI_CC_COUNT; i++)
+            {
+                if(cc_number == midi_cc_numbers[i])
+                {
+                    // Convert CC value (0-127) to parameter value (0.0-1.0)
+                    float param_value = (float)cc_value / 127.0f;
+
+                    // Update parameter directly
+                    parameters[i] = param_value;
+                    parameters_smoothed[i] = param_value;  // Set smoothed to match immediately
+
+                    // Deactivate pickup for this parameter so pot must catch up
+                    // This prevents pot from immediately overriding MIDI control
+                    param_pickup_active[i] = false;
+
+                    break;  // Found matching CC, stop searching
+                }
+            }
         }
     }
 
