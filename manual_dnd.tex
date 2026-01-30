@@ -1,0 +1,473 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{multicol}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+
+% D&D-style colors
+\definecolor{dndred}{RGB}{140,30,30}
+\definecolor{dndbeige}{RGB}{242,235,214}
+\definecolor{dndgreen}{RGB}{100,140,100}
+\definecolor{dndgray}{RGB}{100,100,100}
+
+% Page style
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\color{dndred}\textbf{GenerativeGenerator}}
+\fancyhead[R]{\color{dndred}Character Sheet v1.0}
+\fancyfoot[C]{\thepage}
+
+% Custom box environments using basic commands
+\definecolor{dndboxcolor}{RGB}{242,235,214}
+\definecolor{dndboxborder}{RGB}{140,30,30}
+
+\newenvironment{dndbox}[1][]{%
+    \par\vspace{6pt}%
+    \noindent\fcolorbox{dndboxborder}{dndboxcolor}{%
+    \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+    \ifx\relax#1\relax\else\textbf{#1}\par\vspace{3pt}\fi%
+    \parindent=0pt\parskip=3pt%
+}{%
+    \end{minipage}}%
+    \par\vspace{6pt}%
+}
+
+\newenvironment{dndcomment}{%
+    \par\vspace{6pt}%
+    \noindent\colorbox{dndboxcolor}{%
+    \begin{minipage}{\dimexpr\linewidth-2\fboxsep}%
+    \small\itshape%
+}{%
+    \end{minipage}}%
+    \par\vspace{6pt}%
+}
+
+\newenvironment{dndreadaloud}{%
+    \par\vspace{6pt}%
+    \noindent\fcolorbox{dndboxborder}{white}{%
+    \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule}%
+    \itshape%
+}{%
+    \end{minipage}}%
+    \par\vspace{6pt}%
+}
+
+% Stat block command
+\newcommand{\statblock}[3]{%
+    \begin{tikzpicture}
+        \draw[thick,dndred] (0,0) rectangle (2,2);
+        \draw[thick,dndred] (0,1.5) -- (2,1.5);
+        \node at (1,1.75) {\small\textbf{#1}};
+        \node at (1,0.75) {\Huge\textbf{#2}};
+        \node[below] at (1,0.1) {\tiny #3};
+    \end{tikzpicture}%
+}
+
+% Drop cap simulation
+\newcommand{\dropcap}[1]{\textbf{\large #1}}
+
+\title{
+    \Huge\textbf{\color{dndred}GenerativeGenerator}\\[0.3cm]
+    \Large Character Sheet \& Technical Grimoire\\[0.2cm]
+    \large Generative Melodic Instrument
+}
+\author{Jeff Lytle}
+\date{Version 1.0 --- Firmware Build 99820}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\fcolorbox{dndred}{dndbeige}{%
+\begin{minipage}{0.85\textwidth}
+\centering
+\begin{tabular}{ll}
+\textbf{Class:} & Generative Melodic Instrument \\
+\textbf{Race:} & Algorithmic Entity \\
+\textbf{Level:} & v1.0 (76\% Flash Capacity) \\
+\textbf{Alignment:} & Chaotic Creative \\
+\textbf{Hit Points:} & 16d8+48 (Learning Buffer) \\
+\textbf{Speed:} & 48kHz sample rate, 30Hz display \\
+\end{tabular}
+\end{minipage}
+}
+\end{center}
+
+\vfill
+
+\begin{dndreadaloud}
+Born from the LEARNING state, this algorithmic entity captures short musical gestures and evolves them through probabilistic generation. Unlike rigid sequencers, it extracts \textit{tendencies}---the essence of intervallic motion, directional flow, and register preference---then creates infinite variations through parameter-driven probability bias.
+\end{dndreadaloud}
+
+\vfill
+
+\newpage
+
+\begin{multicols}{2}
+\tableofcontents
+\end{multicols}
+
+\newpage
+
+% ============================================================================
+\section{Ability Scores}
+
+\begin{dndcomment}
+These six primary attributes define the character's melodic personality. Each parameter ranges from 0 (untrained) to 127 (legendary mastery), controllable via hardware potentiometers or MIDI CC messages.
+\end{dndcomment}
+
+\subsection{Primary Abilities (Page 0)}
+
+\begin{center}
+\statblock{DEX}{---}{MOTION\\CC 3}\hspace{0.5cm}
+\statblock{WIS}{---}{MEMORY\\CC 9}\hspace{0.5cm}
+\statblock{STR}{---}{REGISTER\\CC 14}
+
+\vspace{0.5cm}
+
+\statblock{INCL}{---}{DIRECTION\\CC 15}\hspace{0.5cm}
+\statblock{CON}{---}{PHRASE\\CC 20}\hspace{0.5cm}
+\statblock{CHA}{---}{ENERGY\\CC 21}
+\end{center}
+
+\subsection{Dexterity (MOTION)}
+\textbf{CC 3} | Default: 64 (50\%)
+
+\dropcap{D}exterity governs the character's preference for smooth stepwise motion versus dramatic intervallic leaps. This stat shapes the overall melodic contour---from lyrical and flowing to angular and disjunct.
+
+\textbf{Mathematical Formula:}
+\begin{equation}
+w_{\text{step}} = (1.0 - p_{\text{MOTION}}) \cdot 0.5
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40 (Low):} Predominantly stepwise motion (1--2 semitones), smooth melodic contours
+    \item \textbf{40--80 (Mid):} Balanced mix of steps and leaps, natural variety
+    \item \textbf{80--127 (High):} Frequent large leaps (5--12 semitones), angular motion
+\end{itemize}
+\end{dndbox}
+
+\subsection{Wisdom (MEMORY)}
+\textbf{CC 9} | Default: 64 (50\%)
+
+\dropcap{W}isdom represents pattern recognition and recall. A sliding window of the last 8 generated notes is maintained, and this stat controls how often the character revisits familiar material versus exploring new territory.
+
+\textbf{Memory Buffer:}
+\begin{equation}
+\text{recent\_notes} = [n_{i-7}, n_{i-6}, \ldots, n_{i-1}]
+\end{equation}
+
+\textbf{Recall Probability:}
+\begin{equation}
+P(\text{use recent note}) = p_{\text{MEMORY}} \cdot 0.4
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40:} Maximum novelty, constant exploration
+    \item \textbf{40--80:} Occasional returns to familiar notes
+    \item \textbf{80--127:} Highly repetitive, cycles through recent material
+\end{itemize}
+\end{dndbox}
+
+\subsection{Strength (REGISTER)}
+\textbf{CC 14} | Default: 64 (50\%)
+
+\dropcap{S}trength determines vertical range and octave-displacement power. After interval selection, notes may be transposed by $\pm$12 or $\pm$24 semitones based on this stat.
+
+\textbf{Displacement Probability:}
+\begin{equation}
+P(\text{octave displacement}) = p_{\text{REGISTER}} \cdot 0.25
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40:} Stays within learned register
+    \item \textbf{40--80:} Occasional octave jumps
+    \item \textbf{80--127:} Frequent octave displacements, wide tessitura
+\end{itemize}
+\end{dndbox}
+
+\subsection{Inclination (DIRECTION)}
+\textbf{CC 15} | Default: 64 (50\%)
+
+\dropcap{I}nclination biases ascending versus descending melodic motion. This stat blends learned directional tendency with user preference.
+
+\textbf{Blended Bias:}
+\begin{equation}
+\theta_{\text{final}} = \frac{\theta_{\text{learned}} + \theta_{\text{param}}}{2}
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40:} Descending bias, phrases trend downward
+    \item \textbf{40--80:} Follows learned tendency
+    \item \textbf{80--127:} Ascending bias, phrases trend upward
+\end{itemize}
+\end{dndbox}
+
+\subsection{Constitution (PHRASE)}
+\textbf{CC 20} | Default: 64 (50\%)
+
+\dropcap{C}onstitution represents the endurance of melodic ideas. It controls expected phrase length through soft probabilistic targeting.
+
+\textbf{Target Length:}
+\begin{equation}
+L_{\text{target}} = 2 + \lfloor p_{\text{PHRASE}} \cdot 14 \rfloor \in [2, 16]
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40:} Short phrases (2--5 notes)
+    \item \textbf{40--80:} Medium phrases (6--10 notes)
+    \item \textbf{80--127:} Long phrases (11--16 notes)
+\end{itemize}
+\end{dndbox}
+
+\subsection{Charisma (ENERGY)}
+\textbf{CC 21} | Default: 64 (50\%)
+
+\dropcap{C}harisma governs expressiveness and intensity. This is a \textit{macro parameter} that scales multiple systems simultaneously.
+
+\textbf{Interval Scaling:}
+\begin{equation}
+I_{\text{scaled}} = I_{\text{base}} \cdot (0.5 + p_{\text{ENERGY}})
+\end{equation}
+
+\begin{dndbox}[Musical Effects]
+\begin{itemize}
+    \item \textbf{0--40:} Calm, small intervals, subdued
+    \item \textbf{40--80:} Balanced intensity
+    \item \textbf{80--127:} Intense, large intervals, dramatic
+\end{itemize}
+\end{dndbox}
+
+% ============================================================================
+\section{Secondary Attributes}
+
+\begin{dndcomment}
+These scores shape the character's structural behavior, long-term evolution, and relationship to musical law versus chaos.
+\end{dndcomment}
+
+\subsection{Stability (Law vs. Chaos)}
+\textbf{CC 22} | Default: 64 (Neutral)
+
+\dropcap{S}tability determines adherence to learned scale degrees. High values favor diatonic conformity; low values introduce chromatic exploration.
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{Lawful (80--127):} & Diatonic conformity \\
+\textbf{Neutral (40--80):} & Balanced consonance \\
+\textbf{Chaotic (0--40):} & Chromatic exploration \\
+\end{tabular}
+\end{center}
+
+\subsection{Entropy (FORGETFULNESS)}
+\textbf{CC 23} | Default: 64 (50\%)
+
+\dropcap{E}ntropy controls the decay rate of learned tendencies. As this stat increases, the character gradually forgets its training.
+
+\textbf{Weight Decay:}
+\begin{equation}
+w_i[n] = w_i[n-1] \cdot (1 - p_{\text{FORGET}} \cdot 0.01)
+\end{equation}
+
+\subsection{Leap Shape (Agility Modifier)}
+\textbf{CC 24} | Default: 64 (50\%)
+
+\dropcap{L}eap Shape controls exponential decay of interval size probability.
+
+\textbf{Exponential Decay:}
+\begin{equation}
+P(I = i) \propto w_i \cdot \exp(-\lambda \cdot i)
+\end{equation}
+
+\subsection{Direction Memory (Momentum)}
+\textbf{CC 25} | Default: 64 (50\%)
+
+\dropcap{M}omentum governs persistence of melodic direction.
+
+\subsection{Home Realm (HOME REGISTER)}
+\textbf{CC 26} | Default: 64 (Mid)
+
+\dropcap{T}he gravitational center of the character's melodic domain.
+
+\textbf{Gaussian Gravity:}
+\begin{equation}
+G(n) = \exp\left(-\frac{(n - r_{\text{center}})^2}{2\sigma^2}\right)
+\end{equation}
+
+\subsection{Exploration Radius (RANGE WIDTH)}
+\textbf{CC 27} | Default: 64 (50\%)
+
+\dropcap{R}ange Width sets variance of register gravity.
+
+% ============================================================================
+\section{Equipment \& Inventory}
+
+\begin{dndbox}[Physical Manifestation]
+The character interfaces with the material plane through these ports.
+\end{dndbox}
+
+\subsection{Input Ports}
+\begin{tabular}{lp{5cm}}
+\toprule
+\textbf{Port} & \textbf{Description} \\
+\midrule
+MIDI In & Channel 1, Note On/Off, CC 3--31 \\
+Gate Input 1 & Note Trigger (rising edge) \\
+Gate Input 2 & Clock/BPM Detection \\
+4× Potentiometers & Analog control, 0--1.0 \\
+\bottomrule
+\end{tabular}
+
+\subsection{Output Ports}
+\begin{tabular}{lp{5cm}}
+\toprule
+\textbf{Port} & \textbf{Description} \\
+\midrule
+MIDI Out & Generated notes, velocity 100 \\
+CV Out & 12-bit, 0--5V, 1V/octave \\
+Gate Out & 50\% duty cycle, 20--500ms \\
+OLED Display & 128×64, 30Hz visual \\
+\bottomrule
+\end{tabular}
+
+% ============================================================================
+\section{Special Abilities}
+
+\subsection{Live Phrase Injection}
+\textit{Instantaneous learning transition}
+
+\begin{dndreadaloud}
+When new MIDI notes arrive during GENERATING state, the character immediately discards old patterns and begins fresh learning. No manual reset required.
+\end{dndreadaloud}
+
+\subsection{Register Gravity}
+\textit{Soft pitch constraint}
+
+\dropcap{N}otes are attracted to the HOME REGISTER center via Gaussian probability weighting.
+
+\subsection{Tendency Extraction}
+\textit{Ritual of analysis}
+
+\dropcap{T}he character analyzes captured notes and extracts:
+\begin{itemize}
+    \item Interval histogram $H[0..12]$
+    \item Directional statistics
+    \item Register center $r_{\text{center}}$
+    \item Most common intervals
+\end{itemize}
+
+% ============================================================================
+\section{State Machine}
+
+\begin{center}
+\begin{tabular}{lp{6cm}}
+\toprule
+\textbf{State} & \textbf{Behavior} \\
+\midrule
+IDLE & Awaiting input, dormant \\
+LEARNING & Capturing notes (L:1...L:16) \\
+GENERATING & Creating variations (G:X) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Transitions:}
+\begin{align*}
+\text{IDLE} &\xrightarrow{\text{MIDI}} \text{LEARNING} \\
+\text{LEARNING} &\xrightarrow{\text{timeout}} \text{GENERATING} \\
+\text{GENERATING} &\xrightarrow{\text{MIDI}} \text{LEARNING}
+\end{align*}
+
+% ============================================================================
+\section{MIDI Control Change Reference}
+
+\begin{center}
+\small
+\begin{tabular}{clcc}
+\toprule
+\textbf{CC\#} & \textbf{Parameter} & \textbf{Page} & \textbf{Default} \\
+\midrule
+3 & MOTION & 0 & 64 \\
+9 & MEMORY & 0 & 64 \\
+14 & REGISTER & 0 & 64 \\
+15 & DIRECTION & 0 & 64 \\
+20 & PHRASE & 1 & 64 \\
+21 & ENERGY & 1 & 64 \\
+22 & STABILITY & 1 & 64 \\
+23 & FORGETFULNESS & 1 & 64 \\
+24 & LEAP SHAPE & 2 & 64 \\
+25 & DIRECTION MEMORY & 2 & 64 \\
+26 & HOME REGISTER & 2 & 64 \\
+27 & RANGE WIDTH & 2 & 64 \\
+28 & LRN TIME & 3 & 20 (2.0s) \\
+29 & ECHO & 3 & 0 (OFF) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\newpage
+\section*{Fillable Character Sheet}
+
+\begin{center}
+\Large\textbf{GenerativeGenerator}\\
+\normalsize Generative Melodic Instrument
+\end{center}
+
+\vspace{0.5cm}
+
+\subsection*{Ability Scores}
+
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Ability} & \textbf{Score} & \textbf{Modifier} & \textbf{CC\#} \\
+\hline
+Dexterity (MOTION) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 3 \\
+\hline
+Wisdom (MEMORY) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 9 \\
+\hline
+Strength (REGISTER) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 14 \\
+\hline
+Inclination (DIRECTION) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 15 \\
+\hline
+Constitution (PHRASE) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 20 \\
+\hline
+Charisma (ENERGY) & \rule{2cm}{1cm} & \rule{1.5cm}{1cm} & 21 \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Current State}
+
+\begin{tabular}{lp{10cm}}
+\textbf{State:} & $\square$ IDLE \quad $\square$ LEARNING \quad $\square$ GENERATING \\[0.3cm]
+\textbf{Notes Learned:} & \rule{3cm}{0.4pt} / 16 \\[0.3cm]
+\textbf{Current BPM:} & \rule{3cm}{0.4pt} \\[0.3cm]
+\textbf{Register Center:} & \rule{3cm}{0.4pt} \\
+\end{tabular}
+
+\subsection*{Performance Notes}
+
+\framebox[\textwidth]{
+  \begin{minipage}{0.95\textwidth}
+  \vspace{4cm}
+  \textit{Write observations about character behavior, favorite patterns, or parameter combinations...}
+  \vspace{4cm}
+  \end{minipage}
+}
+
+\end{document}
