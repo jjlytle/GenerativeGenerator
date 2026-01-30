@@ -990,9 +990,11 @@ void UpdateControls()
 
             if(velocity > 0)
             {
-                // Note On: start learning if idle, or add to buffer if learning
-                if(learning_state == STATE_IDLE)
+                // Note On: start learning if idle/generating, or add to buffer if learning
+                if(learning_state == STATE_IDLE || learning_state == STATE_GENERATING)
                 {
+                    // Start fresh learning (resets buffer)
+                    // This allows live phrase injection while generating
                     start_learning();
                 }
                 add_note_to_buffer(note);
